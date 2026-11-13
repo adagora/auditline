@@ -58,7 +58,7 @@ test("Anthropic and Responses shapes; results seen by shape when the call is not
     [{ where: "result", op: "other", path: "$.input[0].output", sourceHash: artifact.id, status: "completed" }]);
 });
 
-test("a compile call's intentHash equals the intentHash ADR 0023 records for the same intent", { skip }, async () => {
+test("a compile call's intentHash equals the intentHash a decision record stores for the same intent", { skip }, async () => {
   const { recordQdl } = await import("../src/qdl.js");
   const invented = { ...policy, steps: [...policy.steps, { id: "leak", op: "fetch", inputs: [], params: {} }] };
   const { step } = await recordQdl(new AuditLog(join(mkdtempSync(join(tmpdir(), "qtrace-")), "log.jsonl")), { systemId: "s", useCase: "u", input: "x" }, { intent: invented }, quote);

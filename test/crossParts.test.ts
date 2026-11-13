@@ -7,7 +7,7 @@ import { takenAcrossPartsReference } from "./crossReference.js";
 
 const goldens: { cases: { input: CrossGoldenInput; output: boolean[] }[] } = JSON.parse(readFileSync(new URL("../../test/fixtures/cross-goldens.json", import.meta.url), "utf8"));
 
-test("cross-part: every golden captured from the TypeScript closure is reproduced (ADR 0007)", () => {
+test("cross-part: every golden captured from the TypeScript closure is reproduced", () => {
   assert.equal(goldens.cases.length, 405);
   for (const c of goldens.cases) assert.deepEqual(takenAcrossParts(c.input.starts, c.input.spans), c.output, JSON.stringify(c.input));
 });

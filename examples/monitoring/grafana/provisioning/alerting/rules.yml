@@ -212,7 +212,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Token budget counting or settlement failed and the proxy refused generation for a budgeted key (ADR 0044). Check the budget directory and the provider count endpoint."
+          summary: "Token budget counting or settlement failed and the proxy refused generation for a budgeted key. Check the budget directory and the provider count endpoint."
       - uid: ai-audit-unknown-usage
         title: "Unknown token usage rising"
         condition: C
@@ -238,4 +238,4 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "More than 20% of successful calls had no provider-reported usage over 30 minutes. Token totals are a lower bound (ADR 0012). Clients may need stream_options.include_usage."
+          summary: "More than 20% of successful calls had no provider-reported usage over 30 minutes. Token totals are a lower bound. Clients may need stream_options.include_usage."

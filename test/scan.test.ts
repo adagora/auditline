@@ -131,7 +131,7 @@ test("an IBAN is found before a currency, BIC or year, and two adjacent IBANs ar
   assert.deepEqual(scanText("kod AB12 CDEF GHIJ KLMN"), []);
 });
 
-test("credentials without a shape are found by their name (ADR 0028)", () => {
+test("credentials without a shape are found by their name", () => {
   for (const [text, value] of [["TIDB_CLOUD_PRIVATE_KEY=a9F3kLm2Qx7Rt4Vw", "a9F3kLm2Qx7Rt4Vw"], ["X-Api-Key: 7f3c9a1e5b2d", "7f3c9a1e5b2d"],
     ["UPDATE users SET password = 'Tr0ub4dor' WHERE id = 7;", "Tr0ub4dor"], ["const webhookSecret = \"whsec-fake-value\";", "whsec-fake-value"]] as const) {
     assert.ok(scanText(text).some((s) => s.rule === "named-credential"), text);
@@ -141,7 +141,7 @@ test("credentials without a shape are found by their name (ADR 0028)", () => {
   assert.deepEqual(state.findings.map((f) => f.path), ["$.resources[0].instances[0].attributes.password", "$.server.salt_secret"]);
 });
 
-test("names alone do not flag code, types, references, labels or pagination tokens (ADR 0028)", () => {
+test("names alone do not flag code, types, references, labels or pagination tokens", () => {
   for (const text of ["cachedToken: CachedToken", "apiKey: undefined,", "this.authToken = authToken;", "token: string):", "const apiKey = process.env.OPENAI_API_KEY;",
     "secret = getSecret(name)", 'confirmPassword: "Confirm password"', "max_tokens: 4096", "export NPM_TOKEN=$NPM_TOKEN", "GRAFANA_ADMIN_PASSWORD=change-me",
     'apiKey: "${OPENAI_API_KEY_2}"', "token = getToken(42)", "API_TOKEN=<TOKEN_FROM_VAULT_1>"])

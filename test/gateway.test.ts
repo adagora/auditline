@@ -76,7 +76,7 @@ test("usage time series: /audit/stats needs admin key; groups by key/model/hour;
   console.log(out); assert.match(out, /anthropic\/claude-x/); assert.match(out, /openai\/mock-1/);
 });
 
-test("content logging per key (ADR 0011): default key hashes only, logContent key logs redacted text", async () => {
+test("content logging per key: default key hashes only, logContent key logs redacted text", async () => {
   const r1 = await call("vk-A", "/v1/messages", an); await r1.text();
   const a = p.log.read().at(-1) as any;
   assert.equal(a.virtualKey, "claude-code"); assert.equal(a.content, "hash"); assert.equal(a.output, undefined);

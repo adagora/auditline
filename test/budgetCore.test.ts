@@ -26,18 +26,18 @@ function atBendBoundary(input: BudgetGoldenInput, typescript: unknown) {
   return budgetOutcome({ charge: { reserved, usage: kept, anthropic } }, reference);
 }
 
-test("budget: every golden captured from the TypeScript admission and charge is reproduced, except where a number passes 2^48-1, where Bend's numbers end (ADR 0044, ADR 0029)", () => {
+test("budget: every golden captured from the TypeScript admission and charge is reproduced, except where a number passes 2^48-1, where Bend's numbers end", () => {
   assert.equal(goldens.cases.length, budgetInputs().length);
   for (const c of goldens.cases) assert.deepEqual(budgetOutcome(c.input), atBendBoundary(c.input, c.output), JSON.stringify(c.input));
 });
 
-test("budget: same admission and charge as the TypeScript reference on 20,000 generated inputs, with the same rule at 2^48-1 (ADR 0044, ADR 0029)", () => {
+test("budget: same admission and charge as the TypeScript reference on 20,000 generated inputs, with the same rule at 2^48-1", () => {
   const g = gen(91);
   for (let n = 0; n < 10_000; n++) for (const input of [{ admission: admissionInput(g) }, { charge: chargeInput(g) }] as BudgetGoldenInput[])
     assert.deepEqual(budgetOutcome(input), atBendBoundary(input, budgetOutcome(input, reference)), JSON.stringify(input));
 });
 
-test("budget: past 2^48-1 an admission is unavailable unless the budget is blocked, a usage count is unknown, and a limit is a config error (ADR 0044, ADR 0029)", () => {
+test("budget: past 2^48-1 an admission is unavailable unless the budget is blocked, a usage count is unknown, and a limit is a config error", () => {
   const max = BEND_NAT_MAX, open = { spent: { input: 0, output: 0 }, pending: {} };
   assert.equal(admission(open, { input: max, output: max }, { input: max, output: 0 }), "ok");
   assert.throws(() => admission(open, { input: max + 1, output: 1 }, { input: 0, output: 0 }), /audit_budget_unavailable/);

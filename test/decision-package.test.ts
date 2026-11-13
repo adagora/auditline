@@ -56,7 +56,7 @@ test("portable JSON and SVG reproduce in a fresh process without the original lo
   }
 });
 
-test("found by a probe: a JSON receipt verifies only as ai-audit writes it, so a number spelled another way cannot show a different input to a reader that keeps decimal digits (ADR 0059)", async () => {
+test("found by a probe: a JSON receipt verifies only as ai-audit writes it, so a number spelled another way cannot show a different input to a reader that keeps decimal digits", async () => {
   const { bundle } = await fixture();
   const written = packageJson(bundle);
   assert.equal((await verifyPortableReceipt(written + "\n")).reproduced, true);

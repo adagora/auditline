@@ -27,7 +27,7 @@ const OUTCOMES = [
   ["Refused before inspection", (d, s) => d === "none" && Number(s) >= 400],
 ];
 const state = { snapshots: [], data: null, timer: null, built: false, running: new Set(), hover: new Map(), source: "synthetic", seenEvents: null };
-const ADR_NOTE = "Not read from the real audit log (ADR 0040)";
+const REAL_LOG_NOTE = "Not read from the real audit log";
 
 function outcomeTotals(counters) {
   const totals = OUTCOMES.map(() => 0);
@@ -224,18 +224,18 @@ function renderStats(data) {
   stat(host, { label: "Blocked or rejected", value: o.totals[2], sub: "409, 422, 429 and 503 decisions", spark: spark((k) => outcomeTotals(k).totals[2]) });
   stat(host, { label: "Refused before inspection", value: o.totals[3], sub: `${fmt(c.refusalsSuppressed)} over the per-minute record limit`, spark: spark((k) => outcomeTotals(k).totals[3]) });
   stat(host, { label: "Tool calls held", value: held(c), sub: "Observe and enforce", spark: spark(held) });
-  stat(host, { label: "Responses rewritten", value: logs.real ? null : logs.rewritten, sub: logs.real ? ADR_NOTE : "Enforce mode, from the log" });
+  stat(host, { label: "Responses rewritten", value: logs.real ? null : logs.rewritten, sub: logs.real ? REAL_LOG_NOTE : "Enforce mode, from the log" });
   stat(host, { label: "Injection signals", value: signals(c), sub: "Advisory, first sightings", spark: spark(signals) });
   if (logs.real) stat(host, { label: "Audit chain", value: null, sub: "Run ai-audit verify on the real log" });
   else stat(host, { label: "Audit chain", sub: chains.map(([mode, ok]) => `${mode} ${ok ? "ok" : "broken"}`).join(" · "),
     status: broken.length ? { tone: "critical", text: `Broken: ${broken.join(", ")}` } : { tone: "good", text: "Intact" } });
   const usage = $("stats-usage"); usage.replaceChildren();
-  stat(usage, { label: "Input tokens", value: logs.real ? null : logs.tokens.input, sub: logs.real ? ADR_NOTE : "Provider-reported" });
-  stat(usage, { label: "Output tokens", value: logs.real ? null : logs.tokens.output, sub: logs.real ? ADR_NOTE : "Provider-reported" });
+  stat(usage, { label: "Input tokens", value: logs.real ? null : logs.tokens.input, sub: logs.real ? REAL_LOG_NOTE : "Provider-reported" });
+  stat(usage, { label: "Output tokens", value: logs.real ? null : logs.tokens.output, sub: logs.real ? REAL_LOG_NOTE : "Provider-reported" });
   stat(usage, { label: "Unknown usage", value: c.unknownUsage, sub: "Calls without usage, never counted as zero" });
-  stat(usage, { label: "Linked sessions", value: logs.real ? null : logs.sessions, sub: logs.real ? ADR_NOTE : "Keyed prefix digests" });
+  stat(usage, { label: "Linked sessions", value: logs.real ? null : logs.sessions, sub: logs.real ? REAL_LOG_NOTE : "Keyed prefix digests" });
   stat(usage, { label: "Upstream 5xx", value: c.upstream["5xx"] ?? 0, sub: `${fmt(c.upstream["2xx"] ?? 0)} 2xx · ${fmt(c.upstreamErrors)} unreachable or timed out` });
-  stat(usage, { label: "Policy decisions", value: logs.real ? null : logs.decisions, sub: logs.real ? ADR_NOTE : `${fmt(logs.reviews)} reviews recorded` });
+  stat(usage, { label: "Policy decisions", value: logs.real ? null : logs.decisions, sub: logs.real ? REAL_LOG_NOTE : `${fmt(logs.reviews)} reviews recorded` });
   stat(usage, { label: "Log write failures", sub: `${fmt(c.logUnavailable)} refused because the log was unavailable`,
     status: c.logWriteFailures ? { tone: "warning", text: `${fmt(c.logWriteFailures)} lost` } : { tone: "good", text: "None" } });
   stat(usage, { label: "Attachments inspected", value: c.attachments, sub: `${fmt(c.quinelings)} Quinelings events seen` });
@@ -260,7 +260,7 @@ function renderUseCases(counters) {
   }
   for (const g of counters.actionGate) if (g.use_case && g.result === "hold") held[g.use_case] = (held[g.use_case] ?? 0) + g.value;
   if (!Object.keys(outcomes).length) {
-    for (const id of ["bars-use-cases", "bars-use-case-holds"]) unavailable($(id), "This proxy has no use-case table in gateway.json (ADR 0053).");
+    for (const id of ["bars-use-cases", "bars-use-case-holds"]) unavailable($(id), "This proxy has no use-case table in gateway.json.");
     return;
   }
   bars($("bars-use-cases"), outcomes); bars($("bars-use-case-holds"), held);
@@ -273,7 +273,7 @@ function renderBars(data) {
     bars($("bars-findings"), data.logs.findings); bars($("bars-gate"), data.logs.gate); bars($("bars-refusals"), data.logs.refusals);
     return;
   }
-  unavailable($("bars-findings"), `Scan findings are in the audit log only. ${ADR_NOTE}.`);
+  unavailable($("bars-findings"), `Scan findings are in the audit log only. ${REAL_LOG_NOTE}.`);
   bars($("bars-gate"), Object.fromEntries(data.counters.actionGate.map((g) => [`${g.mode} ${g.result}`, g.value])));
   const refused = {};
   for (const r of data.counters.requests) if (r.decision === "none" && Number(r.status) >= 400 && API_ROUTE(r.route)) refused[`HTTP ${r.status}`] = (refused[`HTTP ${r.status}`] ?? 0) + r.value;
@@ -405,7 +405,7 @@ function render() {
   document.querySelectorAll(".lab-only").forEach((node) => node.classList.toggle("hidden", real));
   $("source-control").classList.toggle("hidden", data.sources.length < 2);
   $("source-note").classList.toggle("hidden", !real);
-  if (real) $("source-note").textContent = `Watching ${data.watch}. Counters only: the dashboard does not read the real audit log (ADR 0040). Use ai-audit verify, report and workbench on the log itself.`;
+  if (real) $("source-note").textContent = `Watching ${data.watch}. Counters only: the dashboard does not read the real audit log. Use ai-audit verify, report and workbench on the log itself.`;
   renderAlerts(data.alerts);
   if (!data.counters) { $("live-text").textContent = `Real proxy unreachable: ${data.error}`; $("live").className = "live off"; return; }
   renderStats(data); renderCharts(); renderBars(data);

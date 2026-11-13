@@ -10,7 +10,7 @@ type ArenaFn = (previous: ArenaState | undefined, hashes: string[], blocks: Size
 const run = (f: ArenaFn, i: ArenaGoldenInput) => { const { state, arena } = f(i.previous, i.hashes, i.blocks, i.turn, i.tracked); return JSON.stringify({ ages: state.ages, arena }); };
 const goldens: { cases: { input: ArenaGoldenInput; output: unknown }[] } = JSON.parse(readFileSync(new URL("../../test/fixtures/arena-goldens.json", import.meta.url), "utf8"));
 
-test("arena: every golden captured from the TypeScript arena is reproduced byte for byte (ADR 0020)", () => {
+test("arena: every golden captured from the TypeScript arena is reproduced byte for byte", () => {
   assert.equal(goldens.cases.length, 504);
   for (const c of goldens.cases) assert.equal(run(arenaOf, c.input), JSON.stringify(c.output), JSON.stringify(c.input));
 });

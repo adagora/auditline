@@ -9,12 +9,12 @@ import { gen } from "./helpers.js";
 
 const goldens: { cases: { input: VerdictGoldenInput; output: [string, boolean][] }[] } = JSON.parse(readFileSync(new URL("../../test/fixtures/verdict-goldens.json", import.meta.url), "utf8"));
 
-test("verdict: every golden captured from the TypeScript effect check is reproduced (ADR 0055, ADR 0057)", () => {
+test("verdict: every golden captured from the TypeScript effect check is reproduced", () => {
   assert.equal(goldens.cases.length, verdictInputs().length);
   for (const c of goldens.cases) assert.deepEqual(effectIds(c.input.records).map((id) => [id, effectAuthorized(c.input.records, id)]), c.output, JSON.stringify(c.input));
 });
 
-test("verdict: same effect check as the TypeScript reference on 2,000 generated logs (ADR 0055, ADR 0057)", () => {
+test("verdict: same effect check as the TypeScript reference on 2,000 generated logs", () => {
   const g = gen(101);
   for (let n = 0; n < 2_000; n++) {
     const records = verdictLog(g, g.int(5) === 0 ? g.int(400) : g.int(40));

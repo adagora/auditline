@@ -57,14 +57,14 @@ test("found by fuzzing: extract skips events that are not objects, returns strin
   assert.deepEqual([probe.name, probe.args, probe.text], [undefined, undefined, undefined]);
 });
 
-test("found by fuzzing: a model, stop reason or token count of the wrong type is unknown, not copied into the log (ADR 0012)", () => {
+test("found by fuzzing: a model, stop reason or token count of the wrong type is unknown, not copied into the log", () => {
   const o = extract("openai-responses", JSON.stringify({ model: { echo: "prompt" }, status: ["completed"], usage: { input_tokens: "5", output_tokens: -1 } }), false);
   assert.deepEqual([o.model, o.stop, o.usage], [undefined, undefined, { input: undefined, output: undefined, cached: undefined }]);
   assert.deepEqual(extract("anthropic-messages", '{"model":"m","stop_reason":"end_turn","usage":{"input_tokens":6,"output_tokens":1e400}}', false).usage,
     { input: 6, output: undefined, cached: undefined, cacheWrite: undefined });
 });
 
-test("a negative or fractional token count in an older log is unknown in reports and the session view, not counted (ADR 0012)", () => {
+test("a negative or fractional token count in an older log is unknown in reports and the session view, not counted", () => {
   const call = (usage: object) => ({ kind: "llm-call", upstreamStatus: 200, usage });
   assert.deepEqual(tokenTotals([call({ input: 1000, output: 10 }), call({ input: -400, output: 10 }), call({ input: 12.5, output: 1 })]),
     { inputTokens: 1000, outputTokens: 21, unknownInputUsage: 2, unknownOutputUsage: 0, unknownUsage: 2, tokensComplete: false });

@@ -175,7 +175,7 @@ export function suggestions(records: readonly any[], useCases: readonly UseCaseR
     const labels = [...new Set(records.filter((r) => r.kind === "llm-call" && typeof r.useCase === "string" && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(r.useCase)).map((r) => r.useCase as string))].sort();
     if (labels.length) out.push({
       id: "use-case-table", severity: "info", title: `${labels.length} use-case label${labels.length === 1 ? "" : "s"} without a use-case table`,
-      detail: "Clients already name their use cases. A table gives each one its own models, tools and tier (ADR 0053). Start every row at shadow.",
+      detail: "Clients already name their use cases. A table gives each one its own models, tools and tier. Start every row at shadow.",
       evidence: labels.slice(0, 8).map((l) => `label ${l}`),
       snippet: json({ useCases: Object.fromEntries(labels.map((l) => [l, { tier: "shadow" }])) }),
     });
@@ -184,13 +184,13 @@ export function suggestions(records: readonly any[], useCases: readonly UseCaseR
   const unknown = answered.filter((r) => r.usage?.input == null || r.usage?.output == null).length;
   if (answered.length && unknown / answered.length > UNKNOWN_USAGE_WARN_SHARE) out.push({
     id: "unknown-usage", severity: "warn", title: `${unknown} of ${answered.length} answers have no token usage`,
-    detail: "Token totals are a lower bound. Streams without a usage chunk are the usual cause; ask the client to request usage in streams (ADR 0012).",
+    detail: "Token totals are a lower bound. Streams without a usage chunk are the usual cause; ask the client to request usage in streams.",
     evidence: [`${Math.round((unknown / answered.length) * 100)}% of answered calls`],
   });
   const signals = records.filter((r) => r.kind === "llm-call" && r.decision?.signals?.length).length;
   if (signals && !config.actionGate) out.push({
     id: "gate-for-signals", severity: "warn", title: `${signals} calls carried prompt-injection signals and no tool gate is set`,
-    detail: "Signals are advisory. The gate is what stops a tool call that sends data to a place the user did not name (ADR 0046).",
+    detail: "Signals are advisory. The gate is what stops a tool call that sends data to a place the user did not name.",
     evidence: [`${signals} calls with signals`],
   });
   return out;

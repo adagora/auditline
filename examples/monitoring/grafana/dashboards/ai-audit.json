@@ -865,7 +865,7 @@
       "id": 24,
       "type": "timeseries",
       "title": "Tool calls by gate result",
-      "description": "Rolling five-minute count of proposed calls to gated tools or to tools outside a key's list (ADR 0046, 0048).",
+      "description": "Rolling five-minute count of proposed calls to gated tools or to tools outside a key's list.",
       "datasource": {
         "type": "prometheus",
         "uid": "victoriametrics"
@@ -899,7 +899,7 @@
       "id": 25,
       "type": "timeseries",
       "title": "Refusals before inspection",
-      "description": "401, 403, 404, 413 and 400 before inspection, and refusals counted only in the per-minute summary record (ADR 0047).",
+      "description": "401, 403, 404, 413 and 400 before inspection, and refusals counted only in the per-minute summary record.",
       "datasource": {
         "type": "prometheus",
         "uid": "victoriametrics"
@@ -950,7 +950,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Present only when gateway.json has a useCases table (ADR 0053). Labels are row names from that table, or none for requests that name no row. Tiers, row versions and reviews per use case are in the report and the workbench."
+        "content": "Present only when gateway.json has a useCases table. Labels are row names from that table, or none for requests that name no row. Tiers, row versions and reviews per use case are in the report and the workbench."
       }
     },
     {

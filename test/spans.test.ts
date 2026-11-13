@@ -7,7 +7,7 @@ import { mergeSpansReference } from "./spanReference.js";
 
 const goldens: { cases: { input: SpanGoldenInput; output: Span[] }[] } = JSON.parse(readFileSync(new URL("../../test/fixtures/span-goldens.json", import.meta.url), "utf8"));
 
-test("spans: every golden captured from the TypeScript span merge is reproduced byte for byte (ADR 0007)", () => {
+test("spans: every golden captured from the TypeScript span merge is reproduced byte for byte", () => {
   assert.equal(goldens.cases.length, 404);
   for (const c of goldens.cases) assert.equal(JSON.stringify(mergeSpans(c.input.text, c.input.spans)), JSON.stringify(c.output), JSON.stringify(c.input));
 });

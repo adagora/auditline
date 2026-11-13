@@ -104,7 +104,7 @@ test("law: every generated secret is found and fully masked when it stands alone
   }
 });
 
-test("law: in redact mode a request is blocked or every planted secret is gone, also when split across text parts; masking is a fixpoint; clean input is untouched (ADR 0009)", () => {
+test("law: in redact mode a request is blocked or every planted secret is gone, also when split across text parts; masking is a fixpoint; clean input is untouched", () => {
   const g = gen(2);
   for (let i = 0; i < 3000; i++) {
     const ps: Planted[] = [], input = value(g, ps, i % 4 ? 25 : 0, 0), r = inspect(input), d = decide("redact", r.findings);
@@ -138,7 +138,7 @@ async function throughProxy(modes: Mode[], seed: number, check: (mode: Mode, ps:
   } finally { up.close(); modes.forEach((m) => px[m].close()); }
 }
 
-test("law: through the proxy no planted secret reaches the log in any mode, no-go never forwards a request with a finding, advisory forwards the original bytes, one record per request, also with Quinelings traffic (ADR 0007, 0009, 0024)", async () => {
+test("law: through the proxy no planted secret reaches the log in any mode, no-go never forwards a request with a finding, advisory forwards the original bytes, one record per request, also with Quinelings traffic", async () => {
   let blocked = 0, observed = 0;
   await throughProxy(["redact", "no-go", "advisory"], 4, (mode, ps, body, sent, record, added) => {
     assert.equal(added, 1);
@@ -151,7 +151,7 @@ test("law: through the proxy no planted secret reaches the log in any mode, no-g
   assert.ok(observed >= 10, `only ${observed} records with Quinelings events`);
 });
 
-test("law: through the proxy in redact mode no planted secret reaches upstream (ADR 0009)", async () => {
+test("law: through the proxy in redact mode no planted secret reaches upstream", async () => {
   let redacted = 0;
   await throughProxy(["redact"], 10, (_mode, ps, _body, sent) => {
     if (sent === undefined) return;
@@ -173,7 +173,7 @@ function editLeaf(g: Gen, line: string) {
   return JSON.stringify(rec);
 }
 
-test("law: any edit, deletion, reorder, duplicate or truncation of the log, or a swapped file, fails verification (ADR 0002)", () => {
+test("law: any edit, deletion, reorder, duplicate or truncation of the log, or a swapped file, fails verification", () => {
   const g = gen(5), dir = mkdtempSync(join(tmpdir(), "laws-"));
   for (let i = 0; i < 300; i++) {
     const n = 2 + g.int(6), log = build(join(dir, `log-${i}.jsonl`), g, n), anchors = join(dir, `anchors-${i}.jsonl`), kind = TAMPERS[i % TAMPERS.length], ls = lines(log.path);
@@ -192,7 +192,7 @@ test("law: any edit, deletion, reorder, duplicate or truncation of the log, or a
   }
 });
 
-test("law: provider tokens split across segments add up exactly, each segment gets its share rounded down or up, and empty segments get none (ADR 0017)", () => {
+test("law: provider tokens split across segments add up exactly, each segment gets its share rounded down or up, and empty segments get none", () => {
   const text = SEGMENTS.filter((s) => s !== "other" && s !== "attachments"), g = gen(6);
   const broken = (provider: number, sizes: number[]) => {
     const bytes = Object.fromEntries(SEGMENTS.map((s) => [s, 0])) as Record<(typeof SEGMENTS)[number], number>, total = sizes.reduce((a, b) => a + b, 0);
@@ -233,7 +233,7 @@ test("law: leftover provider tokens go to the largest exact remainders, ties to 
   for (let i = 0; i < 20_000; i++) check(g.int(2_000_001), text.map(() => (g.int(3) ? g.int(33_554_433) : 0)));
 });
 
-test("law: context composition never attributes more bytes than the request has, for every API (ADR 0017)", () => {
+test("law: context composition never attributes more bytes than the request has, for every API", () => {
   const g = gen(7);
   for (let i = 0; i < 1000; i++) {
     const [path, body] = request(g, [], 10, true), raw = Buffer.byteLength(JSON.stringify(body)), c = composeContext(API_BY_PATH[path], body, raw);
@@ -242,7 +242,7 @@ test("law: context composition never attributes more bytes than the request has,
   }
 });
 
-test("law: a request that extends a remembered one is its next turn, a retry is the same turn, an edit branches from the longest remembered prefix (ADR 0018)", () => {
+test("law: a request that extends a remembered one is its next turn, a retry is the same turn, an edit branches from the longest remembered prefix", () => {
   const g = gen(8);
   for (let i = 0; i < 300; i++) {
     const idx = new SessionIndex(Buffer.alloc(32, i % 256)), remembered: { count: number; link: SessionLink }[] = [];
@@ -277,7 +277,7 @@ function edited(g: Gen, xs: ContextBlock[]): ContextBlock[] {
 }
 const perByte = (blocks: ArenaBlock[]) => blocks.flatMap(([code, bytes, age]) => Array<string>(bytes).fill(`${code}${age}`));
 
-test("law: the arena keeps every byte with its kind and age; blocks before the first difference keep their age, the rest are new this turn (ADR 0020)", () => {
+test("law: the arena keeps every byte with its kind and age; blocks before the first difference keep their age, the rest are new this turn", () => {
   const g = gen(9);
   for (let i = 0; i < 500; i++) {
     const idx = new SessionIndex(Buffer.alloc(32, 7));

@@ -408,7 +408,7 @@ export function report(log: AuditLog, from: string, to: string) {
     `Integralność łańcucha: ${v.ok ? "OK ✅" : `NARUSZONA ❌ (linia ${v.badLine}: ${v.reason})`}`, "",
     "| Metryka | Wartość |", "|---|---|",
     ...Object.entries(stats).map(([k, x]) => `| ${k} | ${x} |`), "",
-    ...(useCases.length ? ["## Przypadki użycia (ADR 0053)", "Odmowy liczą tylko rekordy z nazwą przypadku. Nadpisane to ostatnie recenzje inne niż „approved”.",
+    ...(useCases.length ? ["## Przypadki użycia", "Odmowy liczą tylko rekordy z nazwą przypadku. Nadpisane to ostatnie recenzje inne niż „approved”.",
       "| przypadek | poziom | wersje wiersza | wywołania | przekazane | zredagowane | zablokowane | odrzucone | odmowy | wstrzymane narzędzia | tokeny we / wy | decyzje | ocenione | nadpisane |",
       "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
       ...useCases.map((u) => `| ${u.useCase ?? "(brak)"} | ${u.tiers.join(" → ") || "—"} | ${u.versions} | ${u.calls} | ${u.forwarded} | ${u.redacted} | ${u.blocked} | ${u.rejected} | ${u.refused} | ${u.gateHolds} | ${u.inputTokens} / ${u.outputTokens}${u.unknownUsage ? ` (+${u.unknownUsage} bez danych)` : ""} | ${u.decisions} | ${u.reviewed} | ${u.overridden}${u.overrideRatePct === null ? "" : ` (${u.overrideRatePct} %)`} |`), ""] : []),
@@ -425,10 +425,10 @@ export function report(log: AuditLog, from: string, to: string) {
     "### Wykryte reguły (tylko ID)", ...[...calls.reduce((m: Map<string, number>, c) => { findingTotals(c.decision).forEach((n, rule) => m.set(rule, (m.get(rule) ?? 0) + n)); return m; }, new Map<string, number>())].map(([k, x]) => `- ${k}: ${x}`), "",
     "### Sygnały prompt injection (advisory, tylko ID)", ...count(calls.flatMap((c) => firstSightings(c.decision.signals ?? [], c.session?.id, sighted).map((f: any) => f.rule))), "",
     ...(toolUses.length ? ["### Narzędzia wywołane przez model (klucz / narzędzie)", ...count(toolUses), ""] : []),
-    ...(gateHolds.length ? ["### Wstrzymane wywołania narzędzi (ADR 0046, 0048)", ...count(gateHolds), ""] : []),
-    ...(refusalRecords.length ? ["## Odmowy przed inspekcją (bez treści, ADR 0047)", ...count(refusalRecords.filter((r) => !r.suppressed).map((r) => `${r.status} ${r.code}`)),
+    ...(gateHolds.length ? ["### Wstrzymane wywołania narzędzi", ...count(gateHolds), ""] : []),
+    ...(refusalRecords.length ? ["## Odmowy przed inspekcją (bez treści)", ...count(refusalRecords.filter((r) => !r.suppressed).map((r) => `${r.status} ${r.code}`)),
       ...(refusals.suppressed ? [`- bez szczegółów (limit na minutę): ${refusals.suppressed}`] : []), ""] : []),
-    ...(llm.withQuinelings ? ["### Quinelings w ruchu (tylko hashe, ADR 0024)", ...count(calls.flatMap((c) => (c.quinelings ?? []).map((e: any) => `${e.where} ${e.op}${e.status ? ` ${e.status}` : ""}${e.error ? ` error ${e.error.code}` : ""}`))), ""] : []),
+    ...(llm.withQuinelings ? ["### Quinelings w ruchu (tylko hashe)", ...count(calls.flatMap((c) => (c.quinelings ?? []).map((e: any) => `${e.where} ${e.op}${e.status ? ` ${e.status}` : ""}${e.error ? ` error ${e.error.code}` : ""}`))), ""] : []),
     "_Raport generowany automatycznie z dziennika. Nie stanowi porady prawnej._",
   ].join("\n");
   return { md, stats, llm, refusals, qdl, policies, evidence, useCases };

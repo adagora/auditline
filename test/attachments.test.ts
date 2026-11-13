@@ -144,7 +144,7 @@ test("a PDF containing an AWS secret-access assignment is sanitized by the share
   assert.ok((red.log.read().at(-1)!.decision as any).findings.some((f: any) => f.rule === "aws-secret-access-key"));
 });
 
-test("found by fuzzing: base64 data without a media type, and a data URL beside base64 data, are attachments, never unread text (ADR 0003)", async () => {
+test("found by fuzzing: base64 data without a media type, and a data URL beside base64 data, are attachments, never unread text", async () => {
   const content = [{ type: "image", source: { type: "base64", data: AWS } }, { type: "image", source: { type: "base64", media_type: "image/png", data: CLEAN_PNG, note: `data:text/plain;base64,${AWS}` } }];
   assert.deepEqual(discover({ messages: [{ role: "user", content }] }).atts.map((a) => [a.path.join("."), a.mime]),
     [["$.messages.0.content.0.source.data", ""], ["$.messages.0.content.1.source.data", "image/png"], ["$.messages.0.content.1.source.note", "text/plain"]]);

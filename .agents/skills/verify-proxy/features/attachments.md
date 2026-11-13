@@ -1,6 +1,6 @@
 # Attachments
 ## Sub-features
-PDF and image inspection and redaction (rasterized PDFs); uninspectable inputs (remote URL, file id, corrupt) get 422; with no usable bwrap, 422 `audit_sandbox_unavailable`; `--unsafe-no-sandbox` is recorded as `decision.sandbox: "disabled"` (ADR 0021).
+PDF and image inspection and redaction (rasterized PDFs); uninspectable inputs (remote URL, file id, corrupt) get 422; with no usable bwrap, 422 `audit_sandbox_unavailable`; `--unsafe-no-sandbox` is recorded as `decision.sandbox: "disabled"`.
 ## How to get to it (user POV)
 Send an image_url, or an Anthropic `document` or `image` block.
 ## Driving it with drive.mjs

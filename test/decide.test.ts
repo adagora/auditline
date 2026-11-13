@@ -8,7 +8,7 @@ import { gen } from "./helpers.js";
 
 const goldens: { cases: { input: DecideGoldenInput; output: unknown }[] } = JSON.parse(readFileSync(new URL("../../test/fixtures/decide-goldens.json", import.meta.url), "utf8"));
 
-test("decide: every golden captured from the TypeScript decision is reproduced, for each mode and each list of up to three findings (ADR 0009)", () => {
+test("decide: every golden captured from the TypeScript decision is reproduced, for each mode and each list of up to three findings", () => {
   assert.equal(goldens.cases.length, decideInputs().length);
   for (const c of goldens.cases) assert.equal(JSON.stringify(decide(c.input.mode, c.input.findings)), JSON.stringify(c.output), JSON.stringify(c.input));
 });

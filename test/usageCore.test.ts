@@ -11,7 +11,7 @@ const goldens: { cases: { input: UsageGoldenInput; output: unknown }[] } = JSON.
 const session = { id: "s", turn: 2, digest: "d2", parent: "d1", messages: 2 };
 const call = (provider: string, usage?: Record<string, unknown>) => ({ id: "c", ts: "t", provider, usage, session, context: { bytes: {}, totalBytes: 0, tokenBasis: "unknown" } }) as unknown as SessionCall;
 
-test("usage: every golden captured from the TypeScript turn tokens, bust signals and totals is reproduced byte for byte (ADR 0012, ADR 0020)", () => {
+test("usage: every golden captured from the TypeScript turn tokens, bust signals and totals is reproduced byte for byte", () => {
   assert.equal(goldens.cases.length, 300);
   for (const c of goldens.cases) assert.equal(JSON.stringify(usageOutputs(c.input)), JSON.stringify(c.output), JSON.stringify(c.input));
 });
@@ -35,7 +35,7 @@ test("usage: a token count above 2^48-1 (281 trillion) is unknown, where Bend's 
   assert.equal(tokenTotalsReference([call({ input: huge, output: 1 })]).inputTokens, huge);
 });
 
-test("usage: found by fuzzing: a count that would push a token sum past 2^48-1 is unknown, so stats, report and the session view do not throw (ADR 0012, ADR 0029)", () => {
+test("usage: found by fuzzing: a count that would push a token sum past 2^48-1 is unknown, so stats, report and the session view do not throw", () => {
   const max = BEND_NAT_MAX, billedCall = (usage: object) => ({ kind: "llm-call", upstreamStatus: 200, usage });
   assert.deepEqual(tokenTotals([billedCall({ input: max, output: 1 }), billedCall({ input: 1, output: max }), billedCall({ input: 2, output: 3 })]),
     { inputTokens: max, outputTokens: 4, unknownInputUsage: 2, unknownOutputUsage: 1, unknownUsage: 2, tokensComplete: false });

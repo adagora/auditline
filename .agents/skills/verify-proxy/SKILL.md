@@ -29,4 +29,4 @@ The driver kills only the proxies it spawned and closes its mock. It deletes `sc
 Never commit the evidence directory.
 
 ## Proven
-2026-10-21 at 16c0615: 16 scenarios, 15 pass, 1 skip (PDF, no tesseract on the box). Re-run at the ADR 0021 change: 17 scenarios, 16 pass, 1 skip. A scratch break that made no-go forward findings (`src/scan.ts` decide) failed exactly `no-go: finding is 409 and never forwarded: status 200`; reverted.
+2026-10-21 at 16c0615: 16 scenarios, 15 pass, 1 skip (PDF, no tesseract on the box). Re-run after the sandbox change: 17 scenarios, 16 pass, 1 skip. A scratch break that made no-go forward findings (`src/scan.ts` decide) failed exactly `no-go: finding is 409 and never forwarded: status 200`; reverted.

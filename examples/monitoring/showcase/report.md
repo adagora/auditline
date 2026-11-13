@@ -62,7 +62,7 @@ Wersje są numerowane z całego dziennika. „aktualna” oznacza wersję ostatn
 - pi-ignore-instructions: 8
 - pi-system-prompt: 8
 
-### Quinelings w ruchu (tylko hashe, ADR 0024)
+### Quinelings w ruchu (tylko hashe)
 - result run completed: 3
 
 _Raport generowany automatycznie z dziennika. Nie stanowi porady prawnej._

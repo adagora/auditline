@@ -73,7 +73,7 @@ To showcase a reviewed decision with a signed checkpoint, create an Ed25519 key 
 ./traffic.sh injection
 ```
 
-Wait for the next 15-second scrape, then refresh Grafana. The sessions command above lists the fake session ID. A receipt needs a real `decide` record, as shown in [the policy workflow](../../docs/decisions.md).
+Wait for the next 15-second scrape, then refresh Grafana. The sessions command above lists the fake session ID. A receipt needs a real `decide` record.
 
 ## Alert rules
 
@@ -101,7 +101,7 @@ for i in 1 2 3 4 5 6; do ./traffic.sh injection; done
 
 The injection alert fires at the next evaluation, within about 1 minute plus the scrape interval. A notification appears on the ntfy topic.
 
-To test the critical rule, tear the last line of the log. The proxy then refuses requests with 503 and does not forward them (ADR 0016):
+To test the critical rule, tear the last line of the log. The proxy then refuses requests with 503 and does not forward them:
 
 ```sh
 docker compose exec proxy sh -c 'printf "{" >> /data/audit.jsonl'

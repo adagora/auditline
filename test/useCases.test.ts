@@ -95,7 +95,7 @@ test("the proxy refuses requests outside the table, applies each row's models an
     assert.deepEqual(useCases.map((u) => [u.useCase, u.tiers, u.calls, u.refused, u.gateHolds, u.decisions, u.reviewed, u.overridden, u.overrideRatePct]), [
       ["intake", ["contain"], 1, 1, 0, 0, 0, 0, null], ["refund", ["shadow"], 1, 0, 1, 1, 1, 1, 100], ["retired", [], 0, 1, 0, 0, 0, 0, null],
       ["summarize", ["assist"], 1, 1, 0, 0, 0, 0, null], [null, [], 0, 2, 0, 0, 0, 0, null]]);
-    assert.match(md, /## Przypadki użycia \(ADR 0053\)/);
+    assert.match(md, /## Przypadki użycia/);
     assert.match(md, /\| refund \| shadow \| 1 \| 1 \| 1 \| 0 \| 0 \| 0 \| 0 \| 1 \| 5 \/ 2 \| 1 \| 1 \| 1 \(100 %\) \|/);
     assert.match(md, /- observe get_price \(poza listą przypadku użycia\): 1/);
 

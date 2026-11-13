@@ -38,7 +38,7 @@ FetchErr == pc = "fetch" /\ timerArmed' = FALSE /\ DoWrite("n/a", "done") /\ UNC
 Headers == pc = "fetch" /\ ~aborted /\ timerArmed' \in {FALSE, timerArmed} /\ pc' = "stream" /\ forwarded' = TRUE /\ UNCHANGED <<logs, refused, usage, aborted, usageSeen, delivered, logOk, diskFull, crashed, failCounted, badFwd, errs>>
 UsageChunk == pc = "stream" /\ ~aborted /\ ~usageSeen /\ usageSeen' = TRUE /\ UNCHANGED <<pc, logs, refused, usage, aborted, timerArmed, delivered, forwarded, logOk, diskFull, crashed, failCounted, badFwd, errs>>
 StreamEnd == pc = "stream" /\ pc' = "write" /\ delivered' = TRUE /\ UNCHANGED <<logs, refused, usage, aborted, timerArmed, usageSeen, forwarded, logOk, diskFull, crashed, failCounted, badFwd, errs>>
-\* extract(): usage only if a usage chunk was seen, otherwise undefined (ADR 0012)
+\* extract(): usage only if a usage chunk was seen, otherwise undefined
 Final == pc = "write" /\ DoWrite(IF usageSeen THEN "known" ELSE "unknown", "done") /\ UNCHANGED <<aborted, timerArmed, usageSeen, delivered, forwarded, logOk, diskFull, badFwd, errs>>
 InternalError == pc \in {"inspect", "stream", "write"} /\ errs = 0 /\ errs' = 1 /\ Catch("plain")
                  /\ UNCHANGED <<usage, aborted, timerArmed, usageSeen, delivered, forwarded, logOk, diskFull, badFwd>>
@@ -52,6 +52,6 @@ NeverSilent == pc = "done" => (logs = 1 \/ failCounted)
 \* never forward while the log is already bad (badFwd: ghost flag set by Forward on a bad log)
 NoForwardOnBadLog == ~badFwd
 NoRefusalAfterForward == refused => ~forwarded
-\* strict ADR 0009 ideal; still violable: log goes bad AFTER the pre-forward check (residual window, ADR 0016)
+\* strict ideal; still violable: log goes bad AFTER the pre-forward check (residual window)
 NoForwardWithoutLog == (pc = "done" /\ delivered) => logs = 1
 ====

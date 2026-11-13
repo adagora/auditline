@@ -162,7 +162,4 @@ test("the README state machine has the console's states, labels and order, and e
   const chain = ["received"];
   while (next.has(chain[chain.length - 1]) && chain.length <= STAGES.length) chain.push(next.get(chain[chain.length - 1])!);
   assert.deepEqual(chain, [...STAGES]);
-  const images = [...readme.matchAll(/!\[[^\]]*\]\((docs\/images\/[^)]+)\)/g)].map((m) => m[1]);
-  assert.ok(images.length >= 7, String(images.length));
-  for (const image of images) assert.ok(existsSync(join(root, image)), image);
 });

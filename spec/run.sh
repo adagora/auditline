@@ -24,12 +24,12 @@ run AuditChain.tla AuditChain_emptyskipped.cfg pass   # an empty current file, a
 run RequestLifecycle.tla RequestLifecycle.cfg pass
 run RequestLifecycle.tla RequestLifecycle_noguard.cfg fail NoCrash
 run RequestLifecycle.tla RequestLifecycle_noprecheck.cfg fail NoForwardOnBadLog
-run RequestLifecycle.tla RequestLifecycle_residual.cfg fail NoForwardWithoutLog   # known residual window, see ADR 0016
+run RequestLifecycle.tla RequestLifecycle_residual.cfg fail NoForwardWithoutLog   # known residual window
 run RequestLifecycle.tla RequestLifecycle_nocount.cfg fail NoRefusalAfterForward
 run RequestLifecycle.tla RequestLifecycle_norefusal.cfg fail NeverSilent
 run DecisionLoop.tla DecisionLoop.cfg pass
 run DecisionLoop.tla DecisionLoop_latestwins.cfg fail WaitingAppNeverFlagged
 run DecisionLoop.tla DecisionLoop_nocheck.cfg fail NoActAgainstEarlierVerdict
-run DecisionLoop.tla DecisionLoop_residual.cfg fail NeverFlagged   # known window, see ADR 0057
-run DecisionLoop.tla DecisionLoop_unacted.cfg fail ApprovalIsActedOn   # known window, the console warns, see ADR 0057
+run DecisionLoop.tla DecisionLoop_residual.cfg fail NeverFlagged   # known window
+run DecisionLoop.tla DecisionLoop_unacted.cfg fail ApprovalIsActedOn   # known window, the console warns
 exit $rc

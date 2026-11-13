@@ -1,6 +1,6 @@
 # Auditline
 
-**The audit line for AI agents.** It sits between your agent and the model provider, scans what goes out and redacts or refuses it, keeps a hash-chained log of what happened, and records each decision so that anyone can replay it later. It was called `ai-audit`. The command is installed under both names, `AUDITLINE_*` variables work wherever `AI_AUDIT_*` ones do, and the `x-audit-*` headers and metric names keep their names ([ADR 0069](docs/adr/0069-auditline-name-and-compatibility.md)).
+**The audit line for AI agents.** It sits between your agent and the model provider, scans what goes out and redacts or refuses it, keeps a hash-chained log of what happened, and records each decision so that anyone can replay it later. It was called `ai-audit`. The command is installed under both names, `AUDITLINE_*` variables work wherever `AI_AUDIT_*` ones do, and the `x-audit-*` headers and metric names keep their names.
 
 <div align="center">
 <pre>
@@ -50,45 +50,9 @@ There is no install script. This repository is not published on npm. `npm instal
 | Reversible PII (opt-in) | Random tokens, an encrypted conversation-scoped vault, and authorized customer-text restoration. See [setup and limits](#optional-reversible-pii-tokens). |
 | Virtual keys | The client holds an `aia-` key. The provider key stays in the proxy process. |
 | Your log | JSONL on disk. One record per inspected call. A daily anchor file kept somewhere else. |
-| Overhead | About 0.6 to 0.7 ms p50 and about 1.1 ms p95 on a loopback mock, redaction included. See [the 2026-10-20 run](docs/performance/2026-10-20/README.md). |
+| Overhead | About 0.6 to 0.7 ms p50 and about 1.1 ms p95 on a loopback mock, redaction included. |
 
-TypeScript, Node's standard library, no runtime dependencies. The native policy interpreter uses the standard library. No Quinelings SDK is installed or required. Decisions are in [docs/adr](docs/adr).
-
-## What it looks like
-
-A fresh, end-to-end run of [Deskhand](https://github.com/adagora/deskhand), Auditline and [IntentGauge](https://github.com/adagora/IntentGauge), using the hosted `gpt-4o-mini` model and synthetic customer data:
-
-![Customer request through the encrypted PII vault, customer consent, staff approval, one sample refund, verified read-back, policy replay, portable receipt, audit console and the live evaluation result.](docs/images/workflow-end-to-end.gif)
-
-The model receives a PII token; the customer reply restores the made-up email. The customer confirms the exact €340 quote, a reviewer approves it in Deskhand, and Temporal issues one refund in an isolated sample ledger and confirms success after read-back. The same audit series links model calls, the native policy decision, review and effect. The downloaded SVG receipt verifies independently.
-
-The hosted evaluation passed **20/21** cases. Saturday's opening hours were correct, but the model skipped a `search_policies` call required by that fixture. No monetary check failed. All 21 trials have verified Auditline request linkage. The recording keeps the blocked evaluation visible; it does not change expectations to make the run green.
-
-The separate feature laboratory runs real gateway requests against scripted providers and fake keys:
-
-![All 33 scripted feature checks pass: routing and keys, inspection modes, injection signals, action gates, use cases, token budgets, API streams, context, native receipts, signatures and fail-closed evidence.](docs/images/gateway-feature-tour.gif)
-
-**33/33 checks passed.** This laboratory demonstrates additional controls without paid model calls. Its attachment check proves refusal of an uninspectable reference; it does not demonstrate OCR/PDF processing on this Mac. The scripted three-application control also passed 21/21 eval cases.
-
-[Run evidence, reproduction steps and the feature-by-feature coverage index](docs/verification/three-app-walkthrough.md) distinguish hosted behavior, scripted checks, unit/formal tests and unsupported paths. Captions were added to screenshots of the actual applications. The customer portal is a labeled demo surface; no production channel, real customer data, live audit log, provider key or vault mapping file is published.
-
-The still images below come from synthetic logs with scripted models.
-
-**What needs attention now**, and what the log suggests changing:
-
-![Console overview: key figures, items that need attention, suggestions](docs/images/console-overview.jpg)
-
-**The state machine of a request**, with how many requests reached each state and where they stopped:
-
-![Request flow: eleven states from request received to delivered and recorded, with stops and flags](docs/images/console-request-flow.jpg)
-
-**What is in the context** of one request: each block in prompt order, its kind, size and age, and what made it large. The log stores sizes, never text:
-
-![Context of one request: block strip by kind, parts table, why it is this big, largest blocks](docs/images/console-context.jpg)
-
-**Decisions and their verdicts**: the rule's result, the person's verdict and what the application did after it:
-
-![Decisions: recorded, waiting, done by rule, approved, overridden, rejected, action done](docs/images/console-decisions.jpg)
+TypeScript, Node's standard library, no runtime dependencies. The native policy interpreter uses the standard library. No Quinelings SDK is installed or required.
 
 ## Quick example
 
@@ -150,7 +114,7 @@ Customer restoration supports Chat Completions, Responses and Anthropic Messages
 
 Vault mode requires virtual keys, redact mode, no PII allowlist and no auxiliary model judge. Binary/remote attachments, audio/video, provider-held history and provider-executed tools are refused in this mode. **Detection remains limited to the scanner's patterns: free-text names/addresses, arbitrary encodings and all incoming channel adapters are not covered. This is not an exhaustive no-PII guarantee.**
 
-Expiry is enforced on reads (24 hours by default, configurable up to 30 days). Schedule `auditline vault-prune --config gateway.json` with the same vault key to authenticate and delete expired mappings. Expiry alone does not delete files or backups. Protect the owner-only directory and backup retention; never store the encryption key alongside them. Key recovery, rotation, KMS integration and quotas are not implemented. Losing/changing the key makes old mappings unusable. See [ADR 0074](docs/adr/0074-scoped-encrypted-pii-tokens.md).
+Expiry is enforced on reads (24 hours by default, configurable up to 30 days). Schedule `auditline vault-prune --config gateway.json` with the same vault key to authenticate and delete expired mappings. Expiry alone does not delete files or backups. Protect the owner-only directory and backup retention; never store the encryption key alongside them. Key recovery, rotation, KMS integration and quotas are not implemented. Losing/changing the key makes old mappings unusable.
 
 
 Claude Code and the Anthropic SDK:
@@ -181,15 +145,15 @@ For a browser-driven integration test with your own OpenAI API key, run `npm run
 
 ## Design
 
-**Scan the whole request, then decide once.** Text, tool arguments, tool results, nested JSON, images and PDFs are inspected before anything is forwarded. The decision is `forward-original`, `forward-redacted`, or `block`. [ADR 0009](docs/adr/0009-inspect-whole-request.md).
+**Scan the whole request, then decide once.** Text, tool arguments, tool results, nested JSON, images and PDFs are inspected before anything is forwarded. The decision is `forward-original`, `forward-redacted`, or `block`.
 
-**Stop when the evidence cannot be kept.** If the log is torn or cannot be appended, the proxy returns 503 and stops before the upstream call. `count_tokens` is scanned and never logged. [ADR 0016](docs/adr/0016-fail-closed-when-log-unavailable.md).
+**Stop when the evidence cannot be kept.** If the log is torn or cannot be appended, the proxy returns 503 and stops before the upstream call. `count_tokens` is scanned and never logged.
 
-**The log stores a rule id and a JSON path.** Each pair is stored once with a `count`, and at most 1,000 pairs per record; further matches are counted per rule in `findingsOverflow` ([ADR 0051](docs/adr/0051-findings-stored-with-counts.md)). Response bodies are stored as `outputHash` unless that virtual key opted into redacted text. [ADR 0007](docs/adr/0007-log-stores-no-values.md), [ADR 0011](docs/adr/0011-response-content-per-key.md).
+**The log stores a rule id and a JSON path.** Each pair is stored once with a `count`, and at most 1,000 pairs per record; further matches are counted per rule in `findingsOverflow`. Response bodies are stored as `outputHash` unless that virtual key opted into redacted text.
 
-**Provider keys stay in the proxy environment.** `keygen` prints an `aia-` key. Config stores its SHA-256. The upstream call uses `AI_AUDIT_UPSTREAM_OPENAI_KEY` or `AI_AUDIT_UPSTREAM_ANTHROPIC_KEY`. [ADR 0008](docs/adr/0008-virtual-keys.md).
+**Provider keys stay in the proxy environment.** `keygen` prints an `aia-` key. Config stores its SHA-256. The upstream call uses `AI_AUDIT_UPSTREAM_OPENAI_KEY` or `AI_AUDIT_UPSTREAM_ANTHROPIC_KEY`.
 
-**A decision is a later record.** `ai-audit decide` links a policy result to `x-request-id`. Replay reads the log. The proxy and policy interpreter have no runtime package dependencies. [ADR 0004](docs/adr/0004-quinelings-optional.md).
+**A decision is a later record.** `ai-audit decide` links a policy result to `x-request-id`. Replay reads the log. The proxy and policy interpreter have no runtime package dependencies.
 
 ## Requests and decisions
 
@@ -220,7 +184,7 @@ sequenceDiagram
   App->>App: run or skip the action, effect record
 ```
 
-The request path, in the order the proxy checks it. The console's Request flow page counts each stage (`STAGES` in `src/consoleModel.ts`). This chart is simplified: it leaves out the log and the disk failing, which the [request lifecycle model](docs/verification/README.md#request-lifecycle-requestlifecycletla-request-lifecyclecfg-148-model-states) covers in 148 states:
+The request path, in the order the proxy checks it. The console's Request flow page counts each stage (`STAGES` in `src/consoleModel.ts`). This chart is simplified: it leaves out the log and the disk failing, which `spec/RequestLifecycle.tla` covers in 148 states:
 
 ```mermaid
 stateDiagram-v2
@@ -263,7 +227,7 @@ stateDiagram-v2
   note right of gate : enforce mode rewrites the answer when a call is held
 ```
 
-A decision after the answer, drawn with `/statechart` from `spec/DecisionLoop.tla` (`docs/verification/decision-loop.cfg`, 52 model states). A decision takes one verdict, an application checks for a verdict before an action the rule allows, and a wait that times out records `skipped`. The two red states are the known windows of [ADR 0057](docs/adr/0057-one-verdict-per-decision.md): an approval that comes after the application skipped, and a verdict that comes after its check. The console's Decisions page shows each decision as `waiting`, `acted`, `approved`, `overridden` or `rejected`.
+A decision after the answer, drawn with `/statechart` from `spec/DecisionLoop.tla` (52 model states). A decision takes one verdict, an application checks for a verdict before an action the rule allows, and a wait that times out records `skipped`. The two red states are the known windows: an approval that comes after the application skipped, and a verdict that comes after its check. The console's Decisions page shows each decision as `waiting`, `acted`, `approved`, `overridden` or `rejected`.
 
 ```mermaid
 ---
@@ -331,7 +295,7 @@ stateDiagram-v2
   class s9 bugPath
 ```
 
-The formal model of the request lifecycle, with log failures, is in [docs/verification](docs/verification/README.md).
+The formal model of the request lifecycle, with log failures, is `spec/RequestLifecycle.tla`.
 
 ## How it compares
 
@@ -347,7 +311,7 @@ The formal model of the request lifecycle, with log failures, is in [docs/verifi
 
 Use ai-audit when Claude Code, Codex, or an official SDK must be scanned on the way out, and you want a log you can re-hash after the fact.
 
-Use LiteLLM when the job is to send one client format to many providers. This proxy does not translate OpenAI into Anthropic. An alias may change the model or the base URL inside the same API. [ADR 0006](docs/adr/0006-aliases-same-format.md).
+Use LiteLLM when the job is to send one client format to many providers. This proxy does not translate OpenAI into Anthropic. An alias may change the model or the base URL inside the same API.
 
 Use gitleaks when the secret is in a file in git. It does not see the tool result an agent is about to post.
 
@@ -411,7 +375,7 @@ docker run --rm -p 8787:8787 -v "$PWD/data:/data" \
   ai-audit
 ```
 
-Pointer-compressed builds are opt-in and slower for this process. Measured with `node bench/memory.mjs`, five runs: JS heap 6.3 MB instead of 9.7 MB, RSS still about 180 MB, throughput about 8% lower. The default image stays official Node. [ADR 0005](docs/adr/0005-official-node-image.md).
+Pointer-compressed builds are opt-in and slower for this process. Measured with `node bench/memory.mjs`, five runs: JS heap 6.3 MB instead of 9.7 MB, RSS still about 180 MB, throughput about 8% lower. The default image stays official Node.
 
 ```bash
 docker build --build-arg BASE=platformatic/node-caged:26.12.1-slim -t ai-audit .
@@ -473,7 +437,7 @@ Add `tokenBudget` to the employee's existing key entry in `gateway.json`:
 
 Budgeted keys support OpenAI Responses and Anthropic Messages, including streaming. They add a provider count request and set or clamp `max_output_tokens` / `max_tokens` to `maxOutputTokens`. Chat Completions, stateful Responses references, background execution and provider-executed tools return 422 for budgeted keys. Keys without a budget retain their existing routes. These token quotas are not dollar budgets: cached tokens count toward input, while provider pricing and non-token charges differ.
 
-Counting or accounting failures refuse generation with 503. A provider count can differ from final usage; any reported overrun is charged fully and blocks that key until its next period. This cannot undo provider-side overspending on that request. Crash reservations remain charged conservatively, and abandoned lock files require investigation while writers are stopped. State is intended for a shared local filesystem, not separate hosts or network filesystems. [ADR 0044](docs/adr/0044-durable-virtual-key-token-budgets.md).
+Counting or accounting failures refuse generation with 503. A provider count can differ from final usage; any reported overrun is charged fully and blocks that key until its next period. This cannot undo provider-side overspending on that request. Crash reservations remain charged conservatively, and abandoned lock files require investigation while writers are stopped. State is intended for a shared local filesystem, not separate hosts or network filesystems.
 
 Inspect current allowances with the admin credential:
 
@@ -491,7 +455,7 @@ After `npm link`, the binary is `ai-audit`. The examples below use that name. `n
 |---|---|---|
 | `serve` | `ai-audit serve --mode redact --log audit.jsonl --port 8787` | Listens. Default host is `127.0.0.1`. |
 | `console` | `ai-audit console --log audit.jsonl --config gateway.json --reviewer ada` | Opens the operator console on `127.0.0.1:8793`. See [Operator console](#operator-console). |
-| `verify` | `ai-audit verify --log audit.jsonl` | Recomputes the chain, and accepts a line only byte for byte as ai-audit wrote it (ADR 0058). Exit 0 when it matches, 1 when it does not. |
+| `verify` | `ai-audit verify --log audit.jsonl` | Recomputes the chain, and accepts a line only byte for byte as ai-audit wrote it. Exit 0 when it matches, 1 when it does not. |
 | `verify` | `ai-audit verify --log audit.jsonl --anchors anchors.jsonl` | Also catches a swapped or truncated file. |
 | `anchor` | `ai-audit anchor --log audit.jsonl --anchors anchors.jsonl` | Appends an anchor. Run it daily. Keep the anchor file somewhere else. |
 | `rotate` | `ai-audit rotate --log audit.jsonl` | Closes the log into a timestamped segment and starts a new file linked to it. |
@@ -505,14 +469,14 @@ After `npm link`, the binary is `ai-audit`. The examples below use that name. `n
 | `profile` | `ai-audit profile --mode redact --config gateway.json` | JSON identity of the current scanner, mode and config. |
 | `scrub` | `ai-audit scrub --input history.jsonl --output history.redacted.jsonl` | A separate sanitized copy, plus a receipt on stdout. |
 | `check-quotes` | `ai-audit check-quotes --source email.txt --answer answer.json` | Checks values the model claims to have read. |
-| `decide` | `ai-audit decide --policy policy.json --inputs inputs.json --system-id shop --use-case quote [--correlation ID]` | Records a policy decision. `--correlation` names the case it belongs to; the proxy stores the same id from the `x-audit-correlation` header on model calls ([ADR 0068](docs/adr/0068-correlation-and-the-application-cockpit.md)). |
-| `approve` | `ai-audit approve --decision ID --reviewer ada --verdict approved` | Appends a review. Verdicts are `approved`, `overridden`, `rejected`. A decision takes one verdict; a second one is refused with `audit_already_reviewed` ([ADR 0057](docs/adr/0057-one-verdict-per-decision.md)). |
+| `decide` | `ai-audit decide --policy policy.json --inputs inputs.json --system-id shop --use-case quote [--correlation ID]` | Records a policy decision. `--correlation` names the case it belongs to; the proxy stores the same id from the `x-audit-correlation` header on model calls. |
+| `approve` | `ai-audit approve --decision ID --reviewer ada --verdict approved` | Appends a review. Verdicts are `approved`, `overridden`, `rejected`. A decision takes one verdict; a second one is refused with `audit_already_reviewed`. |
 | `replay` | `ai-audit replay --decision ID --anchors anchors.jsonl` | Recomputes that decision from the log. |
 | `await` | `ai-audit await --decision ID --timeout-s 600` | Waits for a review of that decision. Exit 0 approved, 1 rejected or overridden, 3 timeout. With `--timeout-s 0` it only checks; run it before an action the rule allows, and record `skipped` with code `timeout` when you stop waiting. |
 | `effect` | `ai-audit effect --decision ID --action send-quote-to-customer --status done --review REVIEW_ID` | Records that the application ran, skipped or failed an action of that decision. |
 | `lab` | `ai-audit lab --log audit.jsonl --session ID --baseline-limit 2 --candidate-limit 3 --output comparison.html` | Compares failure thresholds on recorded observations; never stops an agent. |
 | `receipt` | `ai-audit receipt --decision ID --output receipt.html` | HTML page with downloads for a completed policy decision. `--format svg` or `--format json` exports a portable receipt. |
-| `verify-receipt` | `ai-audit verify-receipt --input receipt.svg` | Replays a portable JSON or SVG receipt without the original log. Either form verifies only exactly as ai-audit wrote it (ADR 0059). |
+| `verify-receipt` | `ai-audit verify-receipt --input receipt.svg` | Replays a portable JSON or SVG receipt without the original log. Either form verifies only exactly as ai-audit wrote it. |
 | `attest-keygen` | `ai-audit attest-keygen --private-key reviewer.pem --public-key reviewer.pub.pem` | Creates an Ed25519 signing key pair in new files. |
 | `attest` | `ai-audit attest --log audit.jsonl --decision ID --verdict approved --private-key reviewer.pem --output decision.attestation.json` | Signs the replayable decision, latest matching review record and log checkpoint. |
 | `verify-attestation` | `ai-audit verify-attestation --input decision.svg --attestation decision.attestation.json --public-key reviewer.pub.pem` | Replays the receipt and verifies the detached signature with the supplied key. |
@@ -529,7 +493,7 @@ ai-audit verify-receipt --input decision.svg
 
 The HTML page includes SVG and JSON downloads for a completed, consistent decision. The SVG shows a named policy step index beside its calculation steps and embeds the exact program and inputs in XML metadata. You can place it in a report or send it to someone who has Auditline. Version 3 receipts bind the exact interpreter implementation and need no external SDK. Old unpinned receipts are unsupported. The SVG, JSON and HTML output paths must be new files; they never replace the source log.
 
-`verify-receipt` requires the same trusted interpreter implementation before recovering the program and replaying the calculation. A changed build is rejected even if it would produce the same output. For SVG, it also checks that the visible drawing matches the embedded data. It returns `origin: "not-verified"` and `humanApproval: "not-verified"`: a recipient cannot authenticate the log, its external anchor, the author or a human review from this file alone. Keep the original log and an independently stored anchor for those checks. A PNG or screenshot loses the replay metadata. [ADR 0036](docs/adr/0036-portable-qdl-decision-receipts.md).
+`verify-receipt` requires the same trusted interpreter implementation before recovering the program and replaying the calculation. A changed build is rejected even if it would produce the same output. For SVG, it also checks that the visible drawing matches the embedded data. It returns `origin: "not-verified"` and `humanApproval: "not-verified"`: a recipient cannot authenticate the log, its external anchor, the author or a human review from this file alone. Keep the original log and an independently stored anchor for those checks. A PNG or screenshot loses the replay metadata.
 
 ### Sign a reviewed decision and checkpoint
 
@@ -542,7 +506,7 @@ ai-audit verify-attestation --input decision.svg --attestation decision.attestat
 ai-audit workbench --log audit.jsonl --output signed-workbench.html --input decision.svg --attestation decision.attestation.json --public-key reviewer.pub.pem
 ```
 
-Keep the private key outside the log and backups of the log. Give the public key to recipients through a channel they already trust. The attestation binds the portable receipt to one signed checkpoint and the latest recorded review verdict; it omits the reviewer name and note. Verification authenticates the key and signed review record, not the person's identity, the truth of the review, or a trusted timestamp. If the key is not independently trusted, the signature only proves internal consistency. The workbench checks that its verified log contains the signed checkpoint before displaying the status. [ADR 0038](docs/adr/0038-detached-signed-decision-attestations.md).
+Keep the private key outside the log and backups of the log. Give the public key to recipients through a channel they already trust. The attestation binds the portable receipt to one signed checkpoint and the latest recorded review verdict; it omits the reviewer name and note. Verification authenticates the key and signed review record, not the person's identity, the truth of the review, or a trusted timestamp. If the key is not independently trusted, the signature only proves internal consistency. The workbench checks that its verified log contains the signed checkpoint before displaying the status.
 
 **Review before sharing.** The portable files include exact policy source, inputs and outputs. Export applies the scanner, but that is not complete anonymisation. The full HTML receipt can also contain reviewer names, notes and caller assertions. Refused, failed and incomplete decisions remain diagnostic HTML; they cannot become a portable replay receipt.
 
@@ -565,11 +529,11 @@ ai-audit serve \
 
 `--rotate-bytes` closes the log into a segment before an append once the file is larger than that, default 256 MiB, `0` to never rotate. See [Rotation and retention](#rotation-and-retention).
 
-A request whose text adds up to more than 256 KiB is scanned in a worker thread, so other requests are not held while it runs. `--inspect-timeout-ms`, default 5000, is its deadline. A scan that takes longer is stopped, the request is refused with 422 `audit_inspection_timeout` and is not forwarded. At most `min(4, CPUs - 1)` workers run; when 64 more requests already wait, the next one gets 503 `audit_inspection_busy`. Ordinary text scans at about 26 ms per MiB on an M1; some repeated patterns take up to 0.74 s per MiB. [ADR 0050](docs/adr/0050-text-inspection-deadline-off-the-event-loop.md).
+A request whose text adds up to more than 256 KiB is scanned in a worker thread, so other requests are not held while it runs. `--inspect-timeout-ms`, default 5000, is its deadline. A scan that takes longer is stopped, the request is refused with 422 `audit_inspection_timeout` and is not forwarded. At most `min(4, CPUs - 1)` workers run; when 64 more requests already wait, the next one gets 503 `audit_inspection_busy`. Ordinary text scans at about 26 ms per MiB on an M1; some repeated patterns take up to 0.74 s per MiB.
 
-`--mode` is `redact`, `no-go` or `advisory`. The default is `redact`. `--no-page-redaction` and `"pageRedaction": false` both turn PDF rasterizing off. A PDF finding then returns 409 instead of a rebuilt file. [ADR 0013](docs/adr/0013-rasterize-pdfs-by-default.md).
+`--mode` is `redact`, `no-go` or `advisory`. The default is `redact`. `--no-page-redaction` and `"pageRedaction": false` both turn PDF rasterizing off. A PDF finding then returns 409 instead of a rebuilt file.
 
-`--unsafe-no-sandbox`, or `AI_AUDIT_UNSAFE_NO_SANDBOX=1`, runs attachment workers with no bubblewrap. Development only. The log records `decision.sandbox` as `disabled`. [ADR 0021](docs/adr/0021-attachment-sandbox-hardening.md).
+`--unsafe-no-sandbox`, or `AI_AUDIT_UNSAFE_NO_SANDBOX=1`, runs attachment workers with no bubblewrap. Development only. The log records `decision.sandbox` as `disabled`.
 
 | Request | Who can call it | Result |
 |---|---|---|
@@ -603,9 +567,9 @@ A finding that cannot be masked is 409 `audit_unredactable_finding` in `redact` 
 
 A rasterized PDF reaches the model as page images. There is no text layer. The call spends more tokens, and the model is reading OCR.
 
-Prompt injection uses deterministic English and Polish rules on tool results and attachment text, including Polish without diacritics and screening of normalized Unicode. The proxy logs the rule and the path, sets `x-audit-signal-count`, and still forwards when the mode would forward. Clients resend earlier tool results on each turn, so every record lists the match again; `/metrics`, `stats` and `report` count a rule at a path one time per session. Matches are advisory even in `no-go` mode: quoted examples also match, and paraphrases can evade the rules. See [detection limits, model candidates and blocking criteria](docs/prompt-injection.md) and [ADR 0010](docs/adr/0010-advisory-prompt-injection-signal.md).
+Prompt injection uses deterministic English and Polish rules on tool results and attachment text, including Polish without diacritics and screening of normalized Unicode. The proxy logs the rule and the path, sets `x-audit-signal-count`, and still forwards when the mode would forward. Clients resend earlier tool results on each turn, so every record lists the match again; `/metrics`, `stats` and `report` count a rule at a path one time per session. Matches are advisory even in `no-go` mode: quoted examples also match, and paraphrases can evade the rules.
 
-An optional local Ollama judge adds semantic observations on tool-result text: `--injection-model qwen3.5:4b --injection-task 'Describe the authorized task here'`. It examines the newest tool results first, reuses a verdict for text it has already judged, remains advisory and reports incomplete inspection explicitly. Run `npm run example:injection -- --ollama` to compare it with the regex baseline on synthetic English/Polish/mixed-language cases. See [setup and evaluation](examples/injection-evaluation/README.md) and [ADR 0045](docs/adr/0045-local-advisory-injection-judge.md).
+An optional local Ollama judge adds semantic observations on tool-result text: `--injection-model qwen3.5:4b --injection-task 'Describe the authorized task here'`. It examines the newest tool results first, reuses a verdict for text it has already judged, remains advisory and reports incomplete inspection explicitly. Run `npm run example:injection -- --ollama` to compare it with the regex baseline on synthetic English/Polish/mixed-language cases. See [setup and evaluation](examples/injection-evaluation/README.md).
 
 #### Tool-call gate
 
@@ -620,11 +584,11 @@ Text checks are too slow or too inaccurate to block on, so blocking belongs at t
 
 For each tool call the model proposes to a listed tool, the proxy takes URL hosts, email addresses, phone numbers and IBANs from those arguments. A destination passes if it is allowed or the user typed it. A destination that came only from a tool result, a tool definition or the system prompt, or from nowhere, is held. A secret in the arguments is always held. No model runs, so the check costs microseconds and does not depend on language or wording.
 
-`observe` delivers the response unchanged and records `actionGate.calls`: per value its argument path, kind, origin (`user`, `system`, `untrusted`, `none`, `unknown`), the source path of an untrusted occurrence, and the result. Values are never stored. Unlisted tools pass, and tools the provider runs itself are not seen. [ADR 0046](docs/adr/0046-deterministic-action-gate.md).
+`observe` delivers the response unchanged and records `actionGate.calls`: per value its argument path, kind, origin (`user`, `system`, `untrusted`, `none`, `unknown`), the source path of an untrusted occurrence, and the result. Values are never stored. Unlisted tools pass, and tools the provider runs itself are not seen.
 
 `enforce` blocks. If one call in a response is held, the client receives none of that response's tool calls. In their place it gets a text answer, `[ai-audit] audit_action_held: held tool call send_email. …`, with a normal stop reason, so the agent can tell the user and continue. This works for Chat Completions, Responses and Messages, streamed or not. A streamed answer is delivered at once up to its first tool-call event; the rest waits for the end of the response. The record has `actionGate.rewritten: true`. Requests without an `enforce` rule take the unchanged pass-through path. In `redact` mode, email addresses, phone numbers and IBANs in tool results are masked before the model sees them, so the gate matters most for URL hosts and in `advisory` mode.
 
-A virtual key can also limit which tools its model may call: `"tools": { "mode": "observe", "allow": ["propose_quote", "mcp__crm__*"] }` in its `keys[]` entry. A call to any other tool is held and recorded with `toolAllowed: false`. Tool definitions in the request are not changed, so clients that send all their tools keep working. `ai-audit report` lists the tools each key called, so you can build the list from real use. A key without `tools` is not limited. [ADR 0048](docs/adr/0048-per-key-tool-allowlist.md).
+A virtual key can also limit which tools its model may call: `"tools": { "mode": "observe", "allow": ["propose_quote", "mcp__crm__*"] }` in its `keys[]` entry. A call to any other tool is held and recorded with `toolAllowed: false`. Tool definitions in the request are not changed, so clients that send all their tools keep working. `ai-audit report` lists the tools each key called, so you can build the list from real use. A key without `tools` is not limited.
 
 #### Use cases
 
@@ -646,13 +610,13 @@ A use case is one kind of work that an application gives to a model, such as sum
 | `tools` | `mode` and `allow`, as in a key's `tools`. A call outside this list is held and recorded with `useCaseToolAllowed: false`. |
 | `keys[].useCases` | The use cases a key may name. A key without the list may name every row. If the header is missing and the list has one name, that name applies. |
 
-With a table, a request that names no row gets 400 `audit_use_case_required`, and a row that is not in the table or not in the key's list gets 403 `audit_use_case_not_allowed`. Each `llm-call` record has `useCase` and `useCasePolicy` with the tier and a digest of the row, so a later change to a row is visible. `ai-audit report` and the workbench show calls, refusals, held tool calls, tokens, decisions and reviews per use case. A decision recorded with `decide --use-case NAME` is counted with the same row. Without a table, the header is only a label, as before. [ADR 0053](docs/adr/0053-use-case-table.md).
+With a table, a request that names no row gets 400 `audit_use_case_required`, and a row that is not in the table or not in the key's list gets 403 `audit_use_case_not_allowed`. Each `llm-call` record has `useCase` and `useCasePolicy` with the tier and a digest of the row, so a later change to a row is visible. `ai-audit report` and the workbench show calls, refusals, held tool calls, tokens, decisions and reviews per use case. A decision recorded with `decide --use-case NAME` is counted with the same row. Without a table, the header is only a label, as before.
 
 In Claude Code, send the header with `ANTHROPIC_CUSTOM_HEADERS='x-audit-use-case: coding'`, or give it a key whose list has one row.
 
 #### What the scanner matches
 
-Rules are adapted from Gitleaks, plus the rows below. A match followed by punctuation still counts. A secret split across text parts still counts. OCR text, PDF text and PDF metadata are scanned. JSON inside tool arguments and tool results is walked. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [ADR 0028](docs/adr/0028-named-credentials.md).
+Rules are adapted from Gitleaks, plus the rows below. A match followed by punctuation still counts. A secret split across text parts still counts. OCR text, PDF text and PDF metadata are scanned. JSON inside tool arguments and tool results is walked. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 | Rule ids | What matches |
 |---|---|
@@ -671,7 +635,7 @@ Rules are adapted from Gitleaks, plus the rows below. A match followed by punctu
 
 `--allow-hashes` points at a JSON array of lowercase SHA-256 hex digests of exact secret values. A listed value is not a finding. The digest is not written to the log.
 
-Every logged decision carries `inspectionProfile`: `scannerVersion`, `rulesDigest`, `configDigest`, and a combined `digest`. The same snapshot keys the attachment cache. Older rows stay valid without a profile. Their policy cannot be rebuilt later. [ADR 0014](docs/adr/0014-versioned-inspection-profiles.md).
+Every logged decision carries `inspectionProfile`: `scannerVersion`, `rulesDigest`, `configDigest`, and a combined `digest`. The same snapshot keys the attachment cache. Older rows stay valid without a profile. Their policy cannot be rebuilt later.
 
 ```bash
 ai-audit profile --mode redact --no-page-redaction --allow-hashes allow.json
@@ -679,11 +643,11 @@ ai-audit profile --mode redact --no-page-redaction --allow-hashes allow.json
 
 #### Sessions, usage and the context map
 
-A request whose message list starts with an earlier request's full list is the next turn of that session. An edited history branches at the last shared turn. Digests are HMACs under a key in `<log>.session-key`, mode `0600`. The HMAC input is the message list. [ADR 0018](docs/adr/0018-keyed-session-linking.md).
+A request whose message list starts with an earlier request's full list is the next turn of that session. An edited history branches at the last shared turn. Digests are HMACs under a key in `<log>.session-key`, mode `0600`. The HMAC input is the message list.
 
-Each `llm-call` has `context.bytes` for `system`, `tools`, `user`, `assistant`, `toolResults`, `attachments` and `other`. When the provider reported prompt tokens, `context.tokens` splits that total by size and `tokenBasis` is `provider-scaled`. Otherwise `tokenBasis` is `unknown`. Sizes only. [ADR 0017](docs/adr/0017-context-composition-metadata.md).
+Each `llm-call` has `context.bytes` for `system`, `tools`, `user`, `assistant`, `toolResults`, `attachments` and `other`. When the provider reported prompt tokens, `context.tokens` splits that total by size and `tokenBasis` is `provider-scaled`. Otherwise `tokenBasis` is `unknown`. Sizes only.
 
-A call the provider did not price is counted in `unknownUsage`, per field `unknownInputUsage` and `unknownOutputUsage`. It is never stored as zero. `tokensComplete: false` means the totals are a lower bound. [ADR 0012](docs/adr/0012-unknown-usage-never-zero.md).
+A call the provider did not price is counted in `unknownUsage`, per field `unknownInputUsage` and `unknownOutputUsage`. It is never stored as zero. `tokensComplete: false` means the totals are a lower bound.
 
 OpenAI chat streams omit usage unless the client sends `"stream_options": {"include_usage": true}`. The proxy does not add that flag.
 
@@ -694,11 +658,7 @@ ai-audit context --log audit.jsonl --session "$SESSION_ID" --output session.html
 
 `$SESSION_ID` is an `id` from the table printed by the first command. An unknown id prints `audit_unknown_session` and exits 2.
 
-The HTML page has two charts. The timeline is provider-reported cache read, cache write, uncached input and output. A cache bust is marked `P` when the prefix was rewritten and `C` when the provider dropped the cache. The arena is one row per request, blocks in prompt order, colored by how many turns a block stayed at that position. A red marker is the first changed offset. Cached tokens after that offset are gone. The header shows peak tokens, cache hit rate, busts, and the share taken by tools and system. [ADR 0020](docs/adr/0020-context-arena-and-cache-busts.md).
-
-The picture is a real `gpt-4o-mini` session sent through the proxy on 2026-10-21 by `examples/context-map/live.mjs`. Eleven requests, about 107k prompt tokens, under 0.01 USD. The agent reads this repo with tools. At turn 5 a skill tool is inserted near the front of the tool list, then a retry and an edited branch. OpenAI reported 0 cached tokens at that turn, so both signals fired. Later turns reused the previous prefix.
-
-![Context map of a real gpt-4o-mini session through the proxy](docs/context-map.png)
+The HTML page has two charts. The timeline is provider-reported cache read, cache write, uncached input and output. A cache bust is marked `P` when the prefix was rewritten and `C` when the provider dropped the cache. The arena is one row per request, blocks in prompt order, colored by how many turns a block stayed at that position. A red marker is the first changed offset. Cached tokens after that offset are gone. The header shows peak tokens, cache hit rate, busts, and the share taken by tools and system.
 
 ```bash
 # Proxy already running, with AI_AUDIT_UPSTREAM_OPENAI_KEY and AI_AUDIT_CLIENT_KEY set.
@@ -731,19 +691,9 @@ It prints a URL with a token, for example `http://127.0.0.1:8793/#token=…`. Op
 | Integrity | Hash chain, segments, anchors and inspection profiles. |
 | Live counters | The running proxy's `/metrics`, when `--metrics` is given. |
 
-The console binds only to a loopback address; reach it from another machine through an SSH tunnel. It refuses requests whose `Host` is not its own address. Without `--reviewer` it is read-only. A review note is at most 500 characters and is refused when it contains a secret or personal data. The console never shows prompt text, because the log does not have it, and never edits `gateway.json`. [ADR 0054](docs/adr/0054-loopback-console.md).
+The console binds only to a loopback address; reach it from another machine through an SSH tunnel. It refuses requests whose `Host` is not its own address. Without `--reviewer` it is read-only. A review note is at most 500 characters and is refused when it contains a secret or personal data. The console never shows prompt text, because the log does not have it, and never edits `gateway.json`.
 
 `npm run example:workflow` starts the same console over the synthetic log; open it from the dashboard with **Operator console**.
-
-One request on its path through the state machine:
-
-![Path of one request: each state passed, flagged, not applicable or stopped](docs/images/console-request-path.jpg)
-
-How the context of a five-turn session grew, by kind of block and by age. In turn 4 a tool definition changed, so everything after the first changed byte is new again and the provider cache cannot cover it:
-
-![Session context by kind of block](docs/images/console-session-kind.jpg)
-
-![Session context by age of block, with the prefix rewrite in turn 4](docs/images/console-session-age.jpg)
 
 #### Evidence workbench
 
@@ -756,7 +706,7 @@ ai-audit workbench --log audit.jsonl --output workbench.html \
 
 The command verifies one hash-chained snapshot before it writes a new file. The HTML starts with expandable request investigations: a metadata fact sheet and a path through inspection, forwarding, provider result, tool observations and linked policy decisions. Each stage labels observed, derived or unknown evidence. The rest of the page shows linked sessions, context sizes, usage, scan rule paths, Quinelings operations and reviews. It has local search and links between calls and sessions. Tables and investigations show the latest 500 calls; totals count the full interval. Narrow the interval to inspect older rows. Run the command again with a new output filename after new traffic.
 
-The workbench omits retained output text, policy source and inputs, reviewer names and notes. It cannot recover prompt text or a detected value because the proxy never stored them. The workbench is a private investigation file, not a shareable proof of origin. For one completed policy decision, use `receipt --format svg` or `--format json`, inspect its exact contents, then give the recipient the artifact and `verify-receipt`. [ADR 0037](docs/adr/0037-offline-evidence-workbench.md), [ADR 0042](docs/adr/0042-request-investigation-from-metadata.md).
+The workbench omits retained output text, policy source and inputs, reviewer names and notes. It cannot recover prompt text or a detected value because the proxy never stored them. The workbench is a private investigation file, not a shareable proof of origin. For one completed policy decision, use `receipt --format svg` or `--format json`, inspect its exact contents, then give the recipient the artifact and `verify-receipt`.
 
 #### Rotation and retention
 
@@ -768,7 +718,7 @@ ai-audit verify --log audit.jsonl
 ai-audit prune --log audit.jsonl --keep-days 184
 ```
 
-`prune` deletes nothing by default and never touches the current file. It refuses a series that does not verify. Before it deletes the oldest segments whose last record is older than N days, it appends a `prune` record with each segment's name, count, head, first record hash and time range, so `verify` and `verify --anchors` accept that gap and no other. An anchor names the file it read by its first record hash, so an anchor of a deleted segment counts as pruned only when a `prune` record lists that segment. The AI Act asks for at least six months of logs from deployers of high-risk systems; 184 days covers any six months. Take a portable receipt of any decision that must outlive the window first. Backup tools and log shippers must follow the file name, not the open file. [ADR 0049](docs/adr/0049-log-segments-and-retention.md), [ADR 0056](docs/adr/0056-segment-order-and-anchors-without-the-clock.md).
+`prune` deletes nothing by default and never touches the current file. It refuses a series that does not verify. Before it deletes the oldest segments whose last record is older than N days, it appends a `prune` record with each segment's name, count, head, first record hash and time range, so `verify` and `verify --anchors` accept that gap and no other. An anchor names the file it read by its first record hash, so an anchor of a deleted segment counts as pruned only when a `prune` record lists that segment. The AI Act asks for at least six months of logs from deployers of high-risk systems; 184 days covers any six months. Take a portable receipt of any decision that must outlive the window first. Backup tools and log shippers must follow the file name, not the open file.
 
 #### Metrics
 
@@ -776,9 +726,9 @@ ai-audit prune --log audit.jsonl --keep-days 184
 
 `ai_audit_requests_total{route,decision,status}`, `ai_audit_request_duration_seconds` from 5 ms to 300 s, `ai_audit_log_unavailable_total`, `ai_audit_log_write_failures_total`, `ai_audit_refusals_suppressed_total`, `ai_audit_injection_signals_total{rule}`, `ai_audit_action_gate_total{mode,result}`, `ai_audit_quineling_events_total{where,op}`, `ai_audit_upstream_responses_total{provider,class}`, `ai_audit_upstream_errors_total{provider,reason}`, `ai_audit_unknown_usage_total{provider,field}`, `ai_audit_attachments_inspected_total`, `ai_audit_sandbox_unavailable_total`, `ai_audit_session_index_rebuild_failures_total`, `ai_audit_inspections_offloaded_total{result}`, gauge `ai_audit_sandbox_disabled`, gauge `ai_audit_attachment_cache_hits`, gauge `ai_audit_attachment_cache_misses`.
 
-Unknown paths are `route="other"`. With a `useCases` table, `ai_audit_requests_total` and `ai_audit_action_gate_total` also have `use_case`: a row name, or `none` for a request that names no row. Labels are taken from fixed sets. A ready-made VictoriaMetrics, Grafana and ntfy stack is in [examples/monitoring](examples/monitoring/README.md). [ADR 0019](docs/adr/0019-metrics-openmetrics.md).
+Unknown paths are `route="other"`. With a `useCases` table, `ai_audit_requests_total` and `ai_audit_action_gate_total` also have `use_case`: a row name, or `none` for a request that names no row. Labels are taken from fixed sets. A ready-made VictoriaMetrics, Grafana and ntfy stack is in [examples/monitoring](examples/monitoring/README.md).
 
-On a loopback mock, Node 22, three runs, `npm run bench:overhead` measured about 0.6 to 0.7 ms p50 and about 1.1 ms p95 at concurrency 1, redaction included. At concurrency 16 one process levels off near 2000 requests per second. [docs/performance/2026-10-20](docs/performance/2026-10-20/README.md).
+On a loopback mock, Node 22, three runs, `npm run bench:overhead` measured about 0.6 to 0.7 ms p50 and about 1.1 ms p95 at concurrency 1, redaction included. At concurrency 16 one process levels off near 2000 requests per second.
 
 ### `scrub`
 
@@ -795,7 +745,7 @@ The scanner walks prompts, assistant output, tool arguments, tool results, title
 
 The receipt on stdout has the profile id, record and change counts, per-rule counts, and the digest of the sanitized file.
 
-Scrub does not read data URIs or Anthropic base64 image payloads, and it does not open attachments. The receipt says so. It also does not delete the copy still sitting at the provider, in backups, or in the application you exported from. Import the sanitized file through that application's own path. [ADR 0015](docs/adr/0015-offline-history-scrubbing.md).
+Scrub does not read data URIs or Anthropic base64 image payloads, and it does not open attachments. The receipt says so. It also does not delete the copy still sitting at the provider, in backups, or in the application you exported from. Import the sanitized file through that application's own path.
 
 ### `check-quotes`
 
@@ -847,8 +797,6 @@ import { checkQuotes } from "./dist/src/quotes.js";
 console.log(checkQuotes(source, answer));
 ```
 
-[ADR 0031](docs/adr/0031-check-llm-answers-by-quotes.md).
-
 ### `decide`, `approve`, `replay`
 
 The model proposes. A fixed policy decides. A person approves. `replay` runs the decision again from the log.
@@ -870,7 +818,7 @@ ai-audit policies --system-id shop --use-case quote
 
 `--llm-call` must already be an `llm-call` id in the same log. The response header can arrive before that row is appended, and `decide` in that window returns `audit_unknown_llm_call`.
 
-A policy file is a native `"format": "auditline-policy"` version 1 or 2 policy or `{"source": "<program source>"}`. Native examples are in `examples/evaluation/machining-policy.json` and `examples/quineling-wycena/policy.json`. Native operations are arithmetic, comparisons, conditional choices, reports and simulated actions; version 2 adds freshness/conflict assessment and distinct-source evidence gates; unsupported operations refuse explicitly. See [native policies](docs/native-policies.md) for the format and limits. Inputs are a JSON object. Both are scanned before compile. Any finding refuses the decision and does not store the value.
+A policy file is a native `"format": "auditline-policy"` version 1 or 2 policy or `{"source": "<program source>"}`. Native examples are in `examples/evaluation/machining-policy.json` and `examples/quineling-wycena/policy.json`. Native operations are arithmetic, comparisons, conditional choices, reports and simulated actions; version 2 adds freshness/conflict assessment and distinct-source evidence gates; unsupported operations refuse explicitly. Inputs are a JSON object. Both are scanned before compile. Any finding refuses the decision and does not store the value.
 
 #### Act on a decision after its verdict
 
@@ -881,11 +829,11 @@ ai-audit await --decision "$DECISION_ID" --timeout-s 1800   # exit 0 approved, 1
 ai-audit effect --decision "$DECISION_ID" --action send-quote-to-customer --status done --review "$REVIEW_ID"
 ```
 
-`await` returns the latest review at once when there is one. `overridden` means the person takes the case over, so the application does not run the rule's action. `effect` stores the action name, `done`, `skipped` or `failed`, the review it followed and an optional code, never a payload or an amount. An action is authorized when the rule proposed it and no person rejected or overrode it, or when a person approved the decision before the action. A `done` action without that is recorded anyway, and the console lists it under Needs attention. From JavaScript, use `awaitVerdict` and `log.effect`. The console's **Notify me** shows a browser notification when a decision starts to wait; `--notify-url URL` also posts `decision_waiting` and, after `--overdue-minutes` (default 240), `decision_overdue` with the decision id, use case and proposed action names. [ADR 0055](docs/adr/0055-act-after-verdict.md).
+`await` returns the latest review at once when there is one. `overridden` means the person takes the case over, so the application does not run the rule's action. `effect` stores the action name, `done`, `skipped` or `failed`, the review it followed and an optional code, never a payload or an amount. An action is authorized when the rule proposed it and no person rejected or overrode it, or when a person approved the decision before the action. A `done` action without that is recorded anyway, and the console lists it under Needs attention. From JavaScript, use `awaitVerdict` and `log.effect`. The console's **Notify me** shows a browser notification when a decision starts to wait; `--notify-url URL` also posts `decision_waiting` and, after `--overdue-minutes` (default 240), `decision_overdue` with the decision id, use case and proposed action names.
 
 `replay` exits 0 when the output matches and 1 when it does not. A refusal stored without its inputs cannot be rebuilt. That code is `audit_qdl_not_replayable`. `node:vm` replay of a plain JavaScript step is not a sandbox. Run only code you trust there.
 
-`npm run build && node examples/evaluation/policy-lab/run.mjs` loads a fake session through the proxy and a mock provider, then compares two policies on it. The walkthrough, including what Quinelings will and will not do, is [docs/decisions.md](docs/decisions.md).
+`npm run build && node examples/evaluation/policy-lab/run.mjs` loads a fake session through the proxy and a mock provider, then compares two policies on it.
 
 `npm run example:evaluate` checks a native machining quote policy on labeled cases. `npm run example:evaluate -- --openai --output /private/tmp/quote-evaluation.json` also evaluates the same facts with OpenAI Decisions, recording misses, false alerts, repeat changes, latency and usage. The evaluator runs offline from proxy traffic; see [the evaluation guide](examples/evaluation/README.md).
 
@@ -984,7 +932,7 @@ Later, not on this path:
   check-quotes of one answer
 ```
 
-One request with the log, the disk, the client and the provider failing at any step, drawn with `/statechart` from `spec/RequestLifecycle.tla` (`docs/verification/request-lifecycle.cfg`, 148 model states). It starts after the key, route and body checks; requests stopped there are refused as in the chart above, and `GET /healthz`, `/readyz`, `/metrics`, `/audit/stats` with the admin key and `GET /v1/models` are answered without a record.
+One request with the log, the disk, the client and the provider failing at any step, drawn with `/statechart` from `spec/RequestLifecycle.tla` (148 model states). It starts after the key, route and body checks; requests stopped there are refused as in the chart above, and `GET /healthz`, `/readyz`, `/metrics`, `/audit/stats` with the admin key and `GET /v1/models` are answered without a record.
 
 ```mermaid
 ---
@@ -1047,11 +995,11 @@ stateDiagram-v2
   class s9 teal
 ```
 
-`Delivered and recorded` appends exactly one hash-chained `llm-call`. `Refused, refusal recorded` forwards nothing and appends one content-free `refusal` record; a broken log is refused with 503 and no record. `Delivered, record lost and counted` is the window described in [ADR 0016](docs/adr/0016-fail-closed-when-log-unavailable.md), red in the chart. The client already has the body, so the failure is counted in `ai_audit_log_write_failures_total` and printed on stderr as `audit_log_write_failed`. The reason is an error code such as `ENOSPC`, or a class such as `TypeError`, never the message. The append lock and the anchor check are drawn in [docs/verification](docs/verification/README.md). TLA+ models live in `spec/`.
+`Delivered and recorded` appends exactly one hash-chained `llm-call`. `Refused, refusal recorded` forwards nothing and appends one content-free `refusal` record; a broken log is refused with 503 and no record. `Delivered, record lost and counted` is the window drawn red in the chart. The client already has the body, so the failure is counted in `ai_audit_log_write_failures_total` and printed on stderr as `audit_log_write_failed`. The reason is an error code such as `ENOSPC`, or a class such as `TypeError`, never the message. The append lock and the anchor check are modeled in `spec/AuditChain.tla`.
 
 Attachment workers run under bubblewrap with no network, no capabilities, and an empty environment. Read-only mounts are `/usr`, the Node install, and the worker script. A worker cannot read the log, the session key, the config, or your home directory. Limits, from the preflight: worker `RLIMIT_DATA` 4 GiB, CPU 90 s, files 64 MiB, 128 open files. Each native tool also gets `RLIMIT_AS` 1.5 GiB. Wall clock is 120 s. Output caps are 16 MiB for the worker and for each tool. Crossing one of those is 422.
 
-Masking, context blocks and usage totals are pure functions with proved laws. They are written in Bend 2 and shipped as generated JavaScript. [ADR 0029](docs/adr/0029-proved-pure-core-in-bend.md).
+Masking, context blocks and usage totals are pure functions with proved laws. They are written in Bend 2 and shipped as generated JavaScript.
 
 ## Troubleshooting
 
@@ -1140,7 +1088,7 @@ Scalar `auditline-policy` version 1 and evidence-capable version 2 are supported
 - Inspected types are PNG, JPEG, WebP, GIF and PDF. Other files, file ids and remote URLs are refused in `redact` and `no-go`.
 - The attachment cache is memory only. It dies with the process.
 - CLI readers hold every record of the log series in memory. A long series needs that much memory; `prune` bounds it.
-- Requests refused with 401, 403, 400, 404 or 413, and requests stopped by an internal error before forwarding (500, with the error class or code as `reason`), are `refusal` records without content, at most 60 per minute per process; the rest of that minute is one summary record with a count ([ADR 0047](docs/adr/0047-record-refusals-before-inspection.md)). `count_tokens` is scanned and not logged.
+- Requests refused with 401, 403, 400, 404 or 413, and requests stopped by an internal error before forwarding (500, with the error class or code as `reason`), are `refusal` records without content, at most 60 per minute per process; the rest of that minute is one summary record with a count. `count_tokens` is scanned and not logged.
 - `scrub` rewrites an export you already have. It does not reach the provider, backups, or data URIs.
 - Prompt-injection rules never block, and they are easy to walk around. The tool-call gate blocks only listed tools, keys with a `tools` list and destinations it can parse.
 - `check-quotes` misses a wrong value backed by a real quote of a different sentence. It flags numbers written as words, translated text, and reformatted dates.
@@ -1168,7 +1116,7 @@ The forwarded request, original or redacted, goes to the upstream URL. Default i
 
 ### Do I have to run Quinelings?
 
-No. `serve`, `verify`, `scrub`, `check-quotes` and redaction work without it. Install it when a model writes the policy, or when the policy source has to survive a process restart inside the log. A short trusted function can be recorded with the built-in step log instead. See [docs/decisions.md](docs/decisions.md).
+No. `serve`, `verify`, `scrub`, `check-quotes` and redaction work without it. Install it when a model writes the policy, or when the policy source has to survive a process restart inside the log. A short trusted function can be recorded with the built-in step log instead.
 
 ### Why did `verify` succeed and an anchor check fail?
 
@@ -1188,9 +1136,7 @@ Point that client back at the provider. There is no per-request bypass header. `
 
 `npm test` builds, then runs `node --test` on `dist/test/*.test.js`. The seeded generators in `test/fuzz.test.ts` are part of that run. `npm run fuzz` runs them 50 times longer. `FUZZ_SCALE` and `FUZZ_SEED` change that. `npm run fuzz:coverage` runs the [Jazzer.js](https://github.com/CodeIntelligenceTesting/jazzer.js) targets in `fuzz/` for `FUZZ_SECONDS` each. The default is 300. Jazzer.js has native code, so it lives in `fuzz/package.json` and is not part of the main install. It cannot see inside regular expressions. Slow-regex inputs are caught by timing a repeated pattern. A finding saved under `fuzz/artifacts/` should become a regression test.
 
-Measured tables in the docs are generated, not typed. `npm run results` checks them against the committed data and `npm run results -- --write` rewrites them; `npm test` fails when one is out of date. [ADR 0052](docs/adr/0052-published-numbers-from-committed-evidence.md).
-
-CI runs `npm test` on Linux with Node 22, 24 and 26, with the attachment tools and bubblewrap installed, so those tests are not skipped. It also runs `npm run verify:bend` and `spec/run.sh` on every push to `main` and every pull request. Each night it runs `npm run fuzz` and 600 seconds of Jazzer.js per target, and it keeps the corpus. [ADR 0030](docs/adr/0030-ci-and-pinned-bend-archive.md).
+CI runs `npm test` on Linux with Node 22, 24 and 26, with the attachment tools and bubblewrap installed, so those tests are not skipped. It also runs `npm run verify:bend` and `spec/run.sh` on every push to `main` and every pull request. Each night it runs `npm run fuzz` and 600 seconds of Jazzer.js per target, and it keeps the corpus.
 
 ```bash
 sh bend/install.sh   # pinned Bend 2.0.38, sha256 checked

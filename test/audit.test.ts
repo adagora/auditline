@@ -34,7 +34,7 @@ test("editing ANY line is detected at that line", () => {
   assert.equal(log.verifyChain().ok, false);
 });
 
-test("found by fuzzing: a line verifies only byte for byte as written; a duplicate key, another spelling of the same JSON or bytes that are not UTF-8 are detected at that line (ADR 0058)", () => {
+test("found by fuzzing: a line verifies only byte for byte as written; a duplicate key, another spelling of the same JSON or bytes that are not UTF-8 are detected at that line", () => {
   const log = fresh(); seed(log);
   log.append({ kind: "llm-call", id: "c�", ts: "t", usage: { input: 1, output: 2 } } as any);
   const lines = readFileSync(log.path, "utf8").trim().split("\n"), last = lines.length - 1;

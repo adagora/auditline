@@ -13,7 +13,7 @@ const baseTools = [
   tool("read_file", "Read a source file of the ai-audit repository.", { params: ["path"], guidance }),
   tool("search_code", "Search the ai-audit repository for a literal string and return matching lines.", { params: ["pattern", "directory"], guidance }),
   tool("list_directory", "List files in a directory of the ai-audit repository.", { params: ["directory"], guidance }),
-  tool("read_adr", "Read an architecture decision record from docs/adr.", { params: ["number"], guidance }),
+  tool("read_design", "Read the design note of the ai-audit repository.", { params: ["section"], guidance }),
   tool("run_tests", "Return the latest recorded test summary for a test file.", { params: ["test_file"], guidance }),
   tool("git_log", "Return recent commit subjects touching a path.", { params: ["path", "limit"], guidance }),
 ];
@@ -51,8 +51,8 @@ const force = (name) => ({ type: "function", function: { name } });
 const results = {
   read_file: (args) => repoFile(args.path ?? "README.md"),
   search_code: () => repoFile("src/session.ts"),
-  list_directory: () => repoFile("docs/adr/README.md"),
-  read_adr: () => repoFile("docs/adr/0020-context-arena-and-cache-busts.md"),
+  list_directory: () => repoFile("package.json"),
+  read_design: () => repoFile("DESIGN.md"),
   run_tests: () => repoFile("test/session.test.ts"),
   git_log: () => repoFile("src/metrics.ts"),
   skill_eu_ai_act_article_12: () => "Article 12 checklist: 1. events logged automatically over the lifetime; 2. logs allow identifying risk situations and substantial modifications; 3. logs support post-market monitoring; 4. logs support monitoring of operation by deployers. ".repeat(12),
@@ -71,15 +71,15 @@ let messages = [{ role: "user", content: "Review whether the ai-audit proxy's au
 messages = await step("t1", tools, messages, "read_file");
 messages = await step("t2", tools, messages, "read_file");
 messages = await step("t3", tools, messages, "search_code");
-messages = await step("t4", tools, messages, "read_adr");
+messages = await step("t4", tools, messages, "read_design");
 tools = [...baseTools.slice(0, 2), skillTool, ...baseTools.slice(2)];
 messages = await step("t5 skill inserted", tools, messages, "skill_eu_ai_act_article_12");
 const beforeBranch = messages;
 messages = await step("t6", tools, messages, "run_tests");
 await call("t7 retry", tools, messages, force("list_directory"));
 messages = await step("t7", tools, messages, "list_directory");
-const edited = [...beforeBranch, { role: "user", content: "Skip the tests; check the session linking ADR instead." }];
-await step("t6 edited branch", tools, edited, "read_adr");
+const edited = [...beforeBranch, { role: "user", content: "Skip the tests; check the session linking design instead." }];
+await step("t6 edited branch", tools, edited, "read_design");
 messages = await step("t8", tools, messages, "git_log");
 await call("t9 answer", tools, [...messages, { role: "user", content: "Summarise the verdict in three sentences." }], "none");
 

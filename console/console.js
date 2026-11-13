@@ -9,7 +9,7 @@ const PAGES = [
 const SUBTITLES = {
   overview: "What needs attention now, and what the log suggests changing.",
   decisions: "Results of rules and models that a person approves, overrides or rejects. Your verdict is written to the log.",
-  "use-cases": "Each kind of work, its limits from gateway.json, and how it behaved (ADR 0053).",
+  "use-cases": "Each kind of work, its limits from gateway.json, and how it behaved.",
   flow: "Every request passes the same states. The numbers show how many reached each state and where they stopped.",
   requests: "One row per request or refusal. Open a row for its path and its context.",
   sessions: "Conversations linked by the proxy. Each row is one turn; each block is part of the context sent to the model.",
@@ -245,7 +245,7 @@ async function flowPage(o) {
       f.offPath ? h("span", { class: "muted small" }, `${fmt(f.offPath)} refusals are not on this path: admin requests, internal errors, per-minute summaries.`) : null))),
     card("State machine of a request", "Each box is a state. Green: passed. Amber: passed with a flag. Red: stopped there. Dashed: the state does not apply. Hover a box for its meaning.",
       h("div", { class: "body" }, h("div", { class: "diagram-wrap" }, flowDiagram(f)),
-        h("p", { class: "small muted" }, "The proxy decides once per request, before forwarding (ADR 0009). A request stops at the first state that refuses it, and exactly one record is written. A refusal before the log can take a record (503 audit_log_unavailable) has no record and is not counted here."))));
+        h("p", { class: "small muted" }, "The proxy decides once per request, before forwarding. A request stops at the first state that refuses it, and exactly one record is written. A refusal before the log can take a record (503 audit_log_unavailable) has no record and is not counted here."))));
 }
 
 function decisionMachine(list) {
@@ -424,7 +424,7 @@ function contextPanel(record) {
           h("dt", {}, "New in this turn"), h("dd", {}, turn ? `${bytes(fresh)} (${pct(fresh, sum)})` : "—"),
           h("dt", {}, "Cache"), h("dd", {}, record.session?.firstChanged ? `prefix changed at ${bytes(record.session.firstChanged.offset)}; later tokens are paid again` : record.session ? "prefix unchanged; only appended" : "—")),
           h("div", { class: "section-title" }, "Largest blocks"), h("ol", { class: "trace" }, largest.map((b) => h("li", {}, h("span", {}, `${KIND_LABELS[b.kind] ?? b.kind}`, h("span", { class: "muted" }, ` · block ${b.i + 1}`), h("div", { class: "muted small" }, ageText(b.age, turn))), h("b", { class: "num nowrap" }, bytes(b.bytes))))))),
-      h("p", { class: "small muted" }, "The log stores the size, kind and age of each block, never its text (ADR 0007, 0017, 0020)."));
+      h("p", { class: "small muted" }, "The log stores the size, kind and age of each block, never its text."));
   };
   draw();
   return card("Context sent to the model", record.session ? `Session turn ${record.session.turn}` : "Not linked to a session", h("div", { class: "body" }, holder),
@@ -458,7 +458,7 @@ async function requestDetail(id) {
 async function sessionsPage() {
   if (route.id) return sessionDetail(route.id);
   const list = await api("sessions");
-  return card("Sessions", "Conversations the proxy linked by their message prefixes (ADR 0018). Open one to see how its context grew.", h("div", { class: "body flush" }, table(
+  return card("Sessions", "Conversations the proxy linked by their message prefixes. Open one to see how its context grew.", h("div", { class: "body flush" }, table(
     ["Session", "#Calls", "#Turns", "#Branches", "#Largest context", "First", "Last"],
     list.map((x) => h("tr", { class: "clickable", onclick: () => go(`#/sessions/${encodeURIComponent(x.id)}`) }, td(short(x.id, 14), "mono"), tdn(x.requests), tdn(x.turns), tdn(x.branches), tdn(bytes(x.maxBytes)), td(time(x.firstTs)), td(time(x.lastTs)))),
     "No linked sessions.")));
@@ -516,8 +516,8 @@ async function integrityPage() {
       card("Anchors", "Checkpoints of the chain kept outside the log.", h("div", { class: "body" }, x.anchors ? h("dl", { class: "kv" }, h("dt", {}, "Status"), h("dd", {}, chip(x.anchors.ok ? "verified" : "failed", x.anchors.ok ? "ok" : "bad")), h("dt", {}, "Anchors"), h("dd", {}, fmt(x.anchors.anchors)), x.anchors.reason ? [h("dt", {}, "Reason"), h("dd", {}, x.anchors.reason)] : null)
         : h("p", {}, "No anchors file given. Run ", h("code", {}, "ai-audit anchor --log LOG --anchors FILE"), " on a schedule and start the console with --anchors FILE.")))),
     h("div", { class: "grid two" },
-      card("Files", "Closed segments and the current file (ADR 0049).", h("div", { class: "body flush" }, table(["File", "#Size"], x.files.map((f) => h("tr", {}, td(f.name, "mono"), tdn(bytes(f.bytes)))), "No file."))),
-      card("Inspection profiles", "Scanner version and settings each request ran with (ADR 0014).", h("div", { class: "body flush" }, table(["Profile", "Scanner", "#Calls", "First", "Last"], x.profiles.map((p) => h("tr", {}, td(short(p.digest, 14), "mono"), td(String(p.scannerVersion ?? "—")), tdn(p.calls), td(time(p.first)), td(time(p.last)))), "No call records.")))),
+      card("Files", "Closed segments and the current file.", h("div", { class: "body flush" }, table(["File", "#Size"], x.files.map((f) => h("tr", {}, td(f.name, "mono"), tdn(bytes(f.bytes)))), "No file."))),
+      card("Inspection profiles", "Scanner version and settings each request ran with.", h("div", { class: "body flush" }, table(["Profile", "Scanner", "#Calls", "First", "Last"], x.profiles.map((p) => h("tr", {}, td(short(p.digest, 14), "mono"), td(String(p.scannerVersion ?? "—")), tdn(p.calls), td(time(p.first)), td(time(p.last)))), "No call records.")))),
     card("Prunes and summaries", null, h("div", { class: "body" }, h("p", {}, `${fmt(x.prunes.length)} prune record${x.prunes.length === 1 ? "" : "s"}. ${fmt(x.suppressedRefusals)} refusals were counted only in per-minute summaries.`))));
 }
 

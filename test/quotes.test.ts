@@ -15,7 +15,7 @@ const read = {
   rush: { value: false, quote: "delivery by 15 Nov" },
 };
 
-test("quotes: every value found in its quote and every quote in the source passes (ADR 0031)", () => {
+test("quotes: every value found in its quote and every quote in the source passes", () => {
   assert.deepEqual(checkQuotes(email, read), { ok: true, checked: 4, issues: [] });
   assert.deepEqual(checkQuotes(email, {}), { ok: true, checked: 0, issues: [] });
 });

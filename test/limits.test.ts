@@ -20,7 +20,7 @@ const toolExpected = { ...workerExpected, as: both(1610612736) };
 const up = await mockUpstream();
 after(() => up.close());
 
-test("worker: DATA 4 GiB (ADR 0003), CPU 90 s, FSIZE 64 MiB, NOFILE 128; tools: AS 1.5 GiB; 120 s wall clock; 16 MiB output", () => {
+test("worker: DATA 4 GiB, CPU 90 s, FSIZE 64 MiB, NOFILE 128; tools: AS 1.5 GiB; 120 s wall clock; 16 MiB output", () => {
   assert.deepEqual(WORKER_LIMITS, { data: 4294967296, cpu: 90, fsize: 67108864, nofile: 128 });
   assert.equal(TOOL_ADDRESS_SPACE_LIMIT, 1610612736);
   assert.equal(WORKER_WALL_CLOCK_MS, 120_000);

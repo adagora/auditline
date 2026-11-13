@@ -7,7 +7,7 @@ import { maskPartsReference, redactTextReference } from "./maskReference.js";
 
 const goldens: { cases: { input: MaskGoldenInput; output: unknown }[] } = JSON.parse(readFileSync(new URL("../../test/fixtures/mask-goldens.json", import.meta.url), "utf8"));
 
-test("mask: every golden captured from the TypeScript redaction of one text and of text parts is reproduced (ADR 0007)", () => {
+test("mask: every golden captured from the TypeScript redaction of one text and of text parts is reproduced", () => {
   assert.equal(goldens.cases.length, 408);
   for (const c of goldens.cases) assert.equal(JSON.stringify(maskOutputs(c.input)), JSON.stringify(c.output), JSON.stringify(c.input));
 });

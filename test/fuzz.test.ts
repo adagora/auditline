@@ -27,7 +27,7 @@ const scanners = (text: string) => {
   return [["scanText", () => scanText(text)], ["inspect", () => inspect(text)], ["inspect parts", () => inspect([text.slice(0, half), { type: "text", text: text.slice(half) }])],
     ["audit redact", () => redact(text)]] as const;
 };
-test("fuzz: scanning time grows linearly with input size and stays under half the inspection deadline per MiB (ADR 0050)", () => {
+test("fuzz: scanning time grows linearly with input size and stays under half the inspection deadline per MiB", () => {
   const g = seeded(1), slowMs = 40, mibBudgetMs = 2500, growth = 10;
   const pump = () => (g.int(2) ? g.chars(1 + g.int(3), PUMP_CHARS) : g.pick(PUMP_TOKENS) + g.chars(g.int(3), PUMP_CHARS));
   const cases = [...STALLED, ...Array.from({ length: runs(40) }, () => [g.pick(PUMP_ENDS), pump(), g.pick(PUMP_ENDS)])];
@@ -65,7 +65,7 @@ const leavesOf = (v: unknown, path: (string | number)[] = ["$"], out: [string, s
   return out;
 };
 
-test("fuzz: every string the scanner leaves unread is an attachment discover() inspects, so no secret reaches upstream unexamined (ADR 0003, 0009)", () => {
+test("fuzz: every string the scanner leaves unread is an attachment discover() inspects, so no secret reaches upstream unexamined", () => {
   const g = seeded(2);
   for (let i = 0; i < runs(3000); i++) {
     const planted: string[] = [], body = { messages: [{ role: "user", content: attachmentTree(g, planted, 0) }] }, r = inspect(body);
@@ -163,7 +163,7 @@ function jsonText(g: Gen, depth: number): { text: string; duplicate: boolean } {
     duplicate: new Set(keys).size < keys.length || values.some((x) => x.duplicate) };
 }
 
-test("fuzz: duplicate-key detection agrees with the generator on JSON with escapes, nesting and look-alike keys (ADR 0009)", () => {
+test("fuzz: duplicate-key detection agrees with the generator on JSON with escapes, nesting and look-alike keys", () => {
   const g = seeded(5);
   for (let i = 0; i < runs(20000); i++) {
     const { text, duplicate } = jsonText(g, 0);
@@ -193,7 +193,7 @@ function oddValue(g: Gen, depth: number): unknown {
   return o;
 }
 
-test("fuzz: any record content survives the log round trip: read() gives back what append wrote and the chain verifies (ADR 0002)", () => {
+test("fuzz: any record content survives the log round trip: read() gives back what append wrote and the chain verifies", () => {
   const g = seeded(6), log = new AuditLog(join(mkdtempSync(join(tmpdir(), "fuzz-")), "log.jsonl")), written: unknown[] = [];
   for (let i = 0; i < runs(300); i++)
     written.push(JSON.parse(JSON.stringify(log.append({ kind: "decision", id: `d${i}`, ts: "2026-10-23T00:00:00.000Z", params: oddValue(g, 0) as Record<string, unknown>, output: oddValue(g, 0) }))));
@@ -201,7 +201,7 @@ test("fuzz: any record content survives the log round trip: read() gives back wh
   assert.deepEqual(log.read(), written);
 });
 
-test("fuzz: any run of appends, rotations, prunes, anchors, crashes and clock steps, backwards too, leaves a series that verify and its anchors accept, with no record lost (ADR 0049, 0056)", () => {
+test("fuzz: any run of appends, rotations, prunes, anchors, crashes and clock steps, backwards too, leaves a series that verify and its anchors accept, with no record lost", () => {
   const g = seeded(12);
   for (let i = 0; i < runs(30); i++) {
     const dir = mkdtempSync(join(tmpdir(), "fuzz-series-")), anchors = join(dir, "anchors.jsonl");
@@ -249,7 +249,7 @@ function quinelingBody(g: Gen, api: Api): object {
   return { input: [{ type: "function_call", call_id: "c1", name }, { type: "function_call_output", call_id: g.pick(["c1", "c2"]), output: result }] };
 }
 
-test("fuzz: Quinelings events carry only shapes, hashes, codes and clean structural error paths, never free text from the traffic (ADR 0032)", () => {
+test("fuzz: Quinelings events carry only shapes, hashes, codes and clean structural error paths, never free text from the traffic", () => {
   const g = seeded(7);
   for (let i = 0; i < runs(3000); i++) {
     const api = g.pick(APIS), body = quinelingBody(g, api);

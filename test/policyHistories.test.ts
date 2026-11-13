@@ -8,7 +8,7 @@ import { gen } from "./helpers.js";
 
 const goldens: { cases: { input: PoliciesGoldenInput; output: unknown }[] } = JSON.parse(readFileSync(new URL("../../test/fixtures/policies-goldens.json", import.meta.url), "utf8"));
 
-test("policyHistories: every golden captured from the TypeScript is reproduced, byte for byte as the CLI prints it (ADR 0027)", () => {
+test("policyHistories: every golden captured from the TypeScript is reproduced, byte for byte as the CLI prints it", () => {
   assert.equal(goldens.cases.length, policiesInputs().length);
   for (const c of goldens.cases) assert.equal(JSON.stringify(policyHistories(c.input.records, c.input.filter)), JSON.stringify(c.output), JSON.stringify(c.input));
 });
