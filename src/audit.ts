@@ -395,47 +395,48 @@ export function report(log: AuditLog, from: string, to: string) {
   const refusals = { recorded: refusalRecords.filter((r) => !r.suppressed).length, suppressed: refusalRecords.reduce((a, r) => a + (r.suppressed ?? 0), 0) };
   const llm = { calls: calls.length, blocked: calls.filter((c) => c.decision.action === "block").length,
     redacted: calls.filter((c) => c.decision.action === "forward-redacted").length,
-    withFindings: calls.filter((c) => c.decision.findings.length).length, withInjectionSignals: calls.filter((c) => c.decision.signals?.length).length, withQuinelings: calls.filter((c) => c.quinelings?.length).length, contentLogged: calls.filter((c) => c.content === "redacted").length, upstreamErrors: calls.filter((c) => c.upstreamStatus >= 400).length,
+    withFindings: calls.filter((c) => c.decision.findings.length).length, withInjectionSignals: calls.filter((c) => c.decision.signals?.length).length, withQuinelings: calls.filter((c) => c.quinelings?.length).length,
+    piiTokenized: calls.filter((c) => c.pii?.delivery === "tokenized").length, piiRestored: calls.filter((c) => c.pii?.delivery === "customer").length,
+    contentLogged: calls.filter((c) => c.content === "redacted").length, upstreamErrors: calls.filter((c) => c.upstreamStatus >= 400).length,
     ...tokenTotals(calls) };
   const sighted = new Set<string>();
-  const toolUses = calls.flatMap((c) => (c.toolCalls ?? []).map((t: any) => `${c.virtualKey ?? "(klucz dostawcy)"} / ${t.name}`));
+  const toolUses = calls.flatMap((c) => (c.toolCalls ?? []).map((t: any) => `${c.virtualKey ?? "(provider key)"} / ${t.name}`));
   const gateHolds = calls.flatMap((c) => (c.actionGate?.calls ?? []).filter((g: any) => g.result === "hold")
-    .map((g: any) => `${g.mode} ${g.tool}${g.toolAllowed === false ? " (poza listą klucza)" : ""}${g.useCaseToolAllowed === false ? " (poza listą przypadku użycia)" : ""}`));
+    .map((g: any) => `${g.mode} ${g.tool}${g.toolAllowed === false ? " (outside key allowlist)" : ""}${g.useCaseToolAllowed === false ? " (outside use-case allowlist)" : ""}`));
   const count = (xs: string[]) => [...xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())].map(([k, x]) => `- ${k}: ${x}`);
   const useCases = useCaseSummary(all, inRange);
   const md = [
-    `# Raport audytowy AI (${from} – ${to})`, "",
-    `Integralność łańcucha: ${v.ok ? "OK ✅" : `NARUSZONA ❌ (linia ${v.badLine}: ${v.reason})`}`, "",
-    "| Metryka | Wartość |", "|---|---|",
+    `# AI Audit Report (${from} – ${to})`, "",
+    `Chain integrity: ${v.ok ? "OK ✅" : `BROKEN ❌ (line ${v.badLine}: ${v.reason})`}`, "",
+    "| Metric | Value |", "|---|---|",
     ...Object.entries(stats).map(([k, x]) => `| ${k} | ${x} |`), "",
-    ...(useCases.length ? ["## Przypadki użycia", "Odmowy liczą tylko rekordy z nazwą przypadku. Nadpisane to ostatnie recenzje inne niż „approved”.",
-      "| przypadek | poziom | wersje wiersza | wywołania | przekazane | zredagowane | zablokowane | odrzucone | odmowy | wstrzymane narzędzia | tokeny we / wy | decyzje | ocenione | nadpisane |",
+    ...(useCases.length ? ["## Use cases", "Refusals count only records carrying a use case. Overridden counts latest reviews other than approved.",
+      "| use case | tier | row versions | calls | forwarded | redacted | blocked | rejected | refused | held tools | tokens in / out | decisions | reviewed | overridden |",
       "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
-      ...useCases.map((u) => `| ${u.useCase ?? "(brak)"} | ${u.tiers.join(" → ") || "—"} | ${u.versions} | ${u.calls} | ${u.forwarded} | ${u.redacted} | ${u.blocked} | ${u.rejected} | ${u.refused} | ${u.gateHolds} | ${u.inputTokens} / ${u.outputTokens}${u.unknownUsage ? ` (+${u.unknownUsage} bez danych)` : ""} | ${u.decisions} | ${u.reviewed} | ${u.overridden}${u.overrideRatePct === null ? "" : ` (${u.overrideRatePct} %)`} |`), ""] : []),
-    ...(steps.length ? ["## Kroki polityk", "| status | liczba |", "|---|---|", ...Object.entries(qdl).map(([k, x]) => `| ${k} | ${x} |`), ""] : []),
-    ...(policies.length ? ["## Wersje polityk", "Wersje są numerowane z całego dziennika. „aktualna” oznacza wersję ostatniej decyzji w całym dzienniku, nie ostatnią w tym oknie.", ...policies.flatMap((p) => [`### ${p.systemId} / ${p.useCase}`,
-      ...p.versions.map((v) => `- v${v.version}${v.current ? " (aktualna)" : ""} ${v.sourceHash.slice(0, 15)}…${v.name ? ` „${v.name}”` : ""}: decyzje ${v.decisions}, ${v.firstUsed} – ${v.lastUsed}`)]), ""] : []),
-    ...(evidence.length ? ["## Niepełne dowody decyzji", ...evidence.map((g) => `- ${g.id}: ${GAP_TEXT[g.reason]}`), ""] : []),
-    "## Decyzje według systemu", ...Object.entries(dec.reduce<Record<string, number>>((a, d) => ((a[`${d.systemId} / ${d.useCase}`] = (a[`${d.systemId} / ${d.useCase}`] ?? 0) + 1), a), {})).map(([k, x]) => `- ${k}: ${x}`), "",
-    "## Cytowane źródła", ...(src.size ? [...src].map(([k, x]) => `- ${k}: ${x}`) : ["- brak"]), "",
-    "## Modele", ...[...new Set(dec.filter((d) => d.model).map((d) => `${d.model!.name}@${d.model!.version}`))].map((m) => `- ${m}`), "",
-    "## Wywołania LLM przez proxy", "| Metryka | Wartość |", "|---|---|", ...Object.entries(llm).map(([k, x]) => `| ${k} | ${x} |`), "",
+      ...useCases.map((u) => `| ${u.useCase ?? "(none)"} | ${u.tiers.join(" → ") || "—"} | ${u.versions} | ${u.calls} | ${u.forwarded} | ${u.redacted} | ${u.blocked} | ${u.rejected} | ${u.refused} | ${u.gateHolds} | ${u.inputTokens} / ${u.outputTokens}${u.unknownUsage ? ` (+${u.unknownUsage} unknown)` : ""} | ${u.decisions} | ${u.reviewed} | ${u.overridden}${u.overrideRatePct === null ? "" : ` (${u.overrideRatePct}%)`} |`), ""] : []),
+    ...(steps.length ? ["## Policy steps", "| status | count |", "|---|---|", ...Object.entries(qdl).map(([k, x]) => `| ${k} | ${x} |`), ""] : []),
+    ...(policies.length ? ["## Policy versions", "Versions are numbered across the full log. current marks the version of the latest decision in the full log.", ...policies.flatMap((p) => [`### ${p.systemId} / ${p.useCase}`,
+      ...p.versions.map((v) => `- v${v.version}${v.current ? " (current)" : ""} ${v.sourceHash.slice(0, 15)}…${v.name ? ` "${v.name}"` : ""}: decisions ${v.decisions}, ${v.firstUsed} – ${v.lastUsed}`)]), ""] : []),
+    ...(evidence.length ? ["## Incomplete decision evidence", ...evidence.map((g) => `- ${g.id}: ${GAP_TEXT[g.reason]}`), ""] : []),
+    "## Decisions by system", ...Object.entries(dec.reduce<Record<string, number>>((a, d) => ((a[`${d.systemId} / ${d.useCase}`] = (a[`${d.systemId} / ${d.useCase}`] ?? 0) + 1), a), {})).map(([k, x]) => `- ${k}: ${x}`), "",
+    "## Cited sources", ...(src.size ? [...src].map(([k, x]) => `- ${k}: ${x}`) : ["- none"]), "",
+    "## Models", ...[...new Set(dec.filter((d) => d.model).map((d) => `${d.model!.name}@${d.model!.version}`))].map((m) => `- ${m}`), "",
+    "## Proxied LLM calls", "| Metric | Value |", "|---|---|", ...Object.entries(llm).map(([k, x]) => `| ${k} | ${x} |`), "",
     ...(llm.tokensComplete ? [] : [`> Token totals are a lower bound: ${llm.unknownUsage} call(s) without usage from the provider (unknown, not zero).`, ""]),
-    "### Według dostawcy / modelu / systemu", ...count(calls.map((c) => `${c.provider} / ${c.model ?? "?"} / ${c.systemId ?? "-"}`)), "",
-    "### Wykryte reguły (tylko ID)", ...[...calls.reduce((m: Map<string, number>, c) => { findingTotals(c.decision).forEach((n, rule) => m.set(rule, (m.get(rule) ?? 0) + n)); return m; }, new Map<string, number>())].map(([k, x]) => `- ${k}: ${x}`), "",
-    "### Sygnały prompt injection (advisory, tylko ID)", ...count(calls.flatMap((c) => firstSightings(c.decision.signals ?? [], c.session?.id, sighted).map((f: any) => f.rule))), "",
-    ...(toolUses.length ? ["### Narzędzia wywołane przez model (klucz / narzędzie)", ...count(toolUses), ""] : []),
-    ...(gateHolds.length ? ["### Wstrzymane wywołania narzędzi", ...count(gateHolds), ""] : []),
-    ...(refusalRecords.length ? ["## Odmowy przed inspekcją (bez treści)", ...count(refusalRecords.filter((r) => !r.suppressed).map((r) => `${r.status} ${r.code}`)),
-      ...(refusals.suppressed ? [`- bez szczegółów (limit na minutę): ${refusals.suppressed}`] : []), ""] : []),
-    ...(llm.withQuinelings ? ["### Quinelings w ruchu (tylko hashe)", ...count(calls.flatMap((c) => (c.quinelings ?? []).map((e: any) => `${e.where} ${e.op}${e.status ? ` ${e.status}` : ""}${e.error ? ` error ${e.error.code}` : ""}`))), ""] : []),
-    "_Raport generowany automatycznie z dziennika. Nie stanowi porady prawnej._",
+    "### By provider / model / system", ...count(calls.map((c) => `${c.provider} / ${c.model ?? "?"} / ${c.systemId ?? "-"}`)), "",
+    "### Detected rules (IDs only)", ...[...calls.reduce((m: Map<string, number>, c) => { findingTotals(c.decision).forEach((n, rule) => m.set(rule, (m.get(rule) ?? 0) + n)); return m; }, new Map<string, number>())].map(([k, x]) => `- ${k}: ${x}`), "",
+    "### Prompt-injection signals (advisory, IDs only)", ...count(calls.flatMap((c) => firstSightings(c.decision.signals ?? [], c.session?.id, sighted).map((f: any) => f.rule))), "",
+    ...(toolUses.length ? ["### Tools called by the model (key / tool)", ...count(toolUses), ""] : []),
+    ...(gateHolds.length ? ["### Held tool calls", ...count(gateHolds), ""] : []),
+    ...(refusalRecords.length ? ["## Pre-inspection refusals (content-free)", ...count(refusalRecords.filter((r) => !r.suppressed).map((r) => `${r.status} ${r.code}`)),
+      ...(refusals.suppressed ? [`- summarized (per-minute cap): ${refusals.suppressed}`] : []), ""] : []),
+    ...(llm.withQuinelings ? ["### Observed policy-tool traffic (hashes only)", ...count(calls.flatMap((c) => (c.quinelings ?? []).map((e: any) => `${e.where} ${e.op}${e.status ? ` ${e.status}` : ""}${e.error ? ` error ${e.error.code}` : ""}`))), ""] : []),
+    "_Report generated automatically from the audit log. Not legal advice._",
   ].join("\n");
   return { md, stats, llm, refusals, qdl, policies, evidence, useCases };
 }
 
-const GAP_TEXT = { "companion-missing": "brak zapisu polityki", "program-missing": "brak programu", "not-reconstructible": "wynik zapisany, nie do odtworzenia", "output-mismatch": "wynik decyzji nie zgadza się z zapisem polityki" };
-
+const GAP_TEXT = { "companion-missing": "missing policy step record", "program-missing": "missing program record", "not-reconstructible": "output recorded, not replayable", "output-mismatch": "decision output disagrees with policy step" };
 function periodPolicies(all: Rec[], inRange: (ts: string) => boolean) {
   const steps = new Map<string, any>();
   for (const r of all) if (r.qdl && typeof r.refId === "string") steps.set(r.refId, r.qdl);

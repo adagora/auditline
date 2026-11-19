@@ -6,10 +6,13 @@ import { basename, join } from "node:path";
 import { AuditLog, anchor, prune, redact, verifyAnchors } from "../src/audit.js";
 import { discover } from "../src/attachments.js";
 import { extract, type Api } from "../src/extract.js";
+import { inspectPii, PII_TOKEN, piiTokens, redactPiiLog } from "../src/pii.js";
+import { restorePiiResponse } from "../src/piiDelivery.js";
+import { PiiVault } from "../src/piiVault.js";
+import { compilePolicy, evaluatePolicy, recoverPolicy } from "../src/policyRuntime.js";
 import { quinelingCalls, quinelingResults } from "../src/quinelings.js";
 import { decide, hasDuplicateKeys, inspect, nestedDeeperThan, scanText } from "../src/scan.js";
 import { gen, pesel, type Gen } from "./helpers.js";
-
 const SCALE = Math.max(Number(process.env.FUZZ_SCALE ?? 1), 1), SEED = Number(process.env.FUZZ_SEED ?? 0);
 const runs = (n: number) => Math.ceil(n * SCALE), seeded = (k: number) => gen(SEED * 7919 + k);
 const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ", LOWER = "abcdefghijklmnopqrstuvwxyz", DIGITS = "0123456789";
@@ -293,5 +296,78 @@ test("fuzz: masking text split into content parts is a fixpoint, so a mask never
     const once = inspect(parts);
     if (decide("redact", once.findings).action === "block") continue;
     assert.deepEqual(inspect(once.value).findings, [], JSON.stringify({ parts, once: once.value }));
+  }
+});
+
+test("fuzz: native policy evaluation is deterministic, preserves round-trip recovery, and evidence gates are monotonic under advancing clocks and added conflicts", () => {
+  const g = seeded(11);
+  const evidencePolicy = JSON.parse(readFileSync(new URL("../../examples/evidence-policy/policy.json", import.meta.url), "utf8"));
+  const compiled = compilePolicy(evidencePolicy);
+  assert.equal(recoverPolicy(compiled.source).id, compiled.id);
+  for (let i = 0; i < runs(500); i++) {
+    const now = 1000 + g.int(10_000);
+    const later = now + g.int(1000);
+    const amount = 50 + g.int(500);
+    const baseRecords = Array.from({ length: 1 + g.int(4) }, (_, idx) => ({
+      id: `obs-${idx}`,
+      source: `review-${idx % 3}`,
+      claim: "release-eligible",
+      value: g.int(4) !== 0,
+      kind: "observation" as const,
+      observedAt: Math.max(0, now - g.int(250)),
+      revision: 1 + g.int(4),
+    }));
+    const run1 = evaluatePolicy(compiled.source, { amount, clock: { now }, evidence: baseRecords });
+    const run2 = evaluatePolicy(compiled.source, { amount, clock: { now }, evidence: baseRecords });
+    assert.deepEqual(run1, run2);
+    const olderClock = evaluatePolicy(compiled.source, { amount, clock: { now: later }, evidence: baseRecords });
+    if (run1.outputs?.[1] === false) assert.equal(olderClock.outputs?.[1], false);
+    const conflicted = evaluatePolicy(compiled.source, {
+      amount,
+      clock: { now },
+      evidence: [...baseRecords, { id: "obs-conflict", source: "review-conflict", claim: "release-eligible", value: false, kind: "observation" as const, observedAt: now, revision: 5 }],
+    });
+    if (run1.outputs?.[1] === false) assert.equal(conflicted.outputs?.[1], false);
+  }
+});
+
+test("fuzz: PII vault isolates scopes, SSE split tokens restore identically for any chunk boundary, and tool arguments are never restored", () => {
+  const g = seeded(12);
+  const vault = new PiiVault({ directory: mkdtempSync(join(tmpdir(), "fuzz-pii-")), key: Buffer.alloc(32, 5), ttlSeconds: 3600 });
+  const scopeA = vault.scope("a".repeat(64), "11111111-1111-4111-8111-111111111111");
+  const scopeB = vault.scope("b".repeat(64), "22222222-2222-4222-8222-222222222222");
+  for (let i = 0; i < runs(300); i++) {
+    const email = `${g.chars(5, LOWER)}@${g.chars(5, LOWER)}.example`;
+    const inspected = inspectPii({ messages: [{ role: "user", content: `Contact ${email}` }] });
+    assert.ok(!JSON.stringify(inspected.value).includes(email));
+    assert.equal(inspected.pii.length, 1);
+    const entry = inspected.pii[0];
+    vault.put(scopeA, [entry]);
+    assert.throws(() => vault.get(scopeB, entry.token), /audit_pii_token_invalid/);
+    const full = `Hello ${entry.token}, confirmed.`;
+    const parts: string[] = [];
+    let pos = 0;
+    while (pos < full.length) { const step = 1 + g.int(11); parts.push(full.slice(pos, pos + step)); pos += step; }
+    const api = g.pick(APIS);
+    const sse = api === "openai-chat"
+      ? parts.map((d) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: d } }] })}\n\n`).join("") + "data: [DONE]\n\n"
+      : api === "anthropic-messages"
+        ? `event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}\n\n`
+          + parts.map((d) => `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: d } })}\n\n`).join("")
+          + `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`
+        : parts.map((d) => `data: ${JSON.stringify({ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: d })}\n\n`).join("")
+          + `data: ${JSON.stringify({ type: "response.completed", response: { output: [{ type: "message", content: [{ type: "output_text", text: full }] }] } })}\n\n`;
+    const allowed = new Set(piiTokens(full));
+    const restored = restorePiiResponse(api, sse, true, (s) => s.replace(PII_TOKEN, (t) => allowed.has(t) ? vault.get(scopeA, t).value : t));
+    assert.ok(restored.includes(email));
+    const toolPayload = api === "openai-chat"
+      ? JSON.stringify({ choices: [{ message: { content: "ok", tool_calls: [{ function: { name: "send", arguments: JSON.stringify({ to: entry.token }) } }] } }] })
+      : api === "anthropic-messages"
+        ? JSON.stringify({ content: [{ type: "text", text: "ok" }, { type: "tool_use", name: "send", input: { to: entry.token } }] })
+        : JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }, { type: "function_call", name: "send", arguments: JSON.stringify({ to: entry.token }) }] });
+    const restoredTool = restorePiiResponse(api, toolPayload, false, (s) => s.replace(PII_TOKEN, (t) => allowed.has(t) ? vault.get(scopeA, t).value : t));
+    assert.ok(!restoredTool.includes(email));
+    const masked = JSON.stringify(redactPiiLog({ msg: full }));
+    assert.ok(!masked.includes(email) && !PII_TOKEN.test(masked));
   }
 });

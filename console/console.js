@@ -3,11 +3,12 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 const $ = (id) => document.getElementById(id);
 const PAGES = [
-  ["overview", "Overview"], ["decisions", "Decisions"], ["use-cases", "Use cases"], ["flow", "Request flow"], ["requests", "Requests"],
+  ["overview", "Overview"], ["cases", "Cases"], ["decisions", "Decisions"], ["use-cases", "Use cases"], ["flow", "Request flow"], ["requests", "Requests"],
   ["sessions", "Sessions and context"], ["keys", "Keys and budgets"], ["integrity", "Integrity"], ["live", "Live counters"],
 ];
 const SUBTITLES = {
   overview: "What needs attention now, and what the log suggests changing.",
+  cases: "Requests, policy decisions, reviews and effects grouped by correlation id.",
   decisions: "Results of rules and models that a person approves, overrides or rejects. Your verdict is written to the log.",
   "use-cases": "Each kind of work, its limits from gateway.json, and how it behaved.",
   flow: "Every request passes the same states. The numbers show how many reached each state and where they stopped.",
@@ -370,9 +371,12 @@ async function requestsPage() {
   const tabs = h("div", { class: "tabs" }, [["", "All"], ...Object.entries(OUTCOMES).map(([k, [label]]) => [k, label])].map(([k, label]) =>
     h("button", { type: "button", "aria-pressed": String((outcome ?? "") === k && !useCase), onclick: () => go(`#/requests/all/${k}`) }, label)));
   return h("div", { class: "page" }, card(useCase ? `Requests of use case ${useCase}` : "Requests", "The dots are the 11 states of the request machine, in order. Open a row for its path and its context.", h("div", { class: "body flush" }, table(
-    ["Time", "Key", "Use case", "Model", "Path", "Outcome", "#Status", "#Findings", "#Tokens in / out", "#Latency"],
+    ["Time", "Key", "Use case", "Case", "Model", "Path", "Outcome", "PII", "#Status", "#Findings", "#Tokens in / out", "#Latency"],
     rows.map((r) => h("tr", { class: "clickable", onclick: () => go(`#/requests/${encodeURIComponent(r.id)}`) },
-      td(time(r.ts)), td(r.key ?? "—"), td(r.useCase ?? "—"), td(r.model ?? "—", "mono"), td(dots(r.stages)), td([outcomeChip(r.outcome), r.code ? h("div", { class: "small muted mono" }, r.code) : null]),
+      td(time(r.ts)), td(r.key ?? "—"), td(r.useCase ?? "—"),
+      td(r.correlation ? link(short(r.correlation, 16), `#/cases/${encodeURIComponent(r.correlation)}`) : "—", "mono"),
+      td(r.model ?? "—", "mono"), td(dots(r.stages)), td([outcomeChip(r.outcome), r.code ? h("div", { class: "small muted mono" }, r.code) : null]),
+      td(r.pii?.delivery ? chip(r.pii.delivery, r.pii.delivery === "customer" ? "warn" : "info") : "—"),
       tdn(r.status ?? "—"), tdn(r.findings + r.signals), tdn(r.usage ? `${fmt(r.usage.input)} / ${fmt(r.usage.output)}` : "—"), tdn(r.latencyMs === null ? "—" : `${fmt(r.latencyMs)} ms`))),
     "No request matches.")), tabs));
 }
@@ -442,10 +446,13 @@ async function requestDetail(id) {
       card("Path through the state machine", path ? `${(OUTCOMES[path.outcome] ?? [path.outcome])[0]}${path.code ? ` · ${path.code}` : ""}` : "Not an LLM request", h("div", { class: "body" }, path ? pathDiagram(path) : h("p", { class: "muted" }, "This record is not on the request path."))),
       h("div", { class: "grid" },
         card("Request", `${time(r.ts)} · ${r.id}`, h("div", { class: "body" }, h("dl", { class: "kv" },
-          [["Kind", r.kind], ["Key", r.virtualKey], ["Use case", r.useCase ? `${r.useCase}${r.useCasePolicy ? ` · ${r.useCasePolicy.tier}` : ""}` : null], ["Provider", r.provider], ["Route", r.endpoint ?? r.route],
+          [["Kind", r.kind], ["Key", r.virtualKey], ["Use case", r.useCase ? `${r.useCase}${r.useCasePolicy ? ` · ${r.useCasePolicy.tier}` : ""}` : null],
+            ["Case", r.correlation ? link(r.correlation, `#/cases/${encodeURIComponent(r.correlation)}`) : null],
+            ["PII delivery", r.pii?.delivery ? chip(r.pii.delivery, r.pii.delivery === "customer" ? "warn" : "info") : null],
+            ["Provider", r.provider], ["Route", r.endpoint ?? r.route],
             ["Model", r.requestedModel ? `${r.requestedModel} → ${r.model}` : r.model], ["Response model", r.responseModel], ["Decision", d.action], ["Status", r.status ?? r.upstreamStatus], ["Error", r.error ?? r.code],
             ["Tokens", r.usage ? `${fmt(r.usage.input)} in · ${fmt(r.usage.output)} out${r.usage.cached ? ` · ${fmt(r.usage.cached)} cached` : ""}` : null], ["Latency", r.latencyMs !== undefined ? `${fmt(r.latencyMs)} ms` : null],
-            ["Inspection profile", r.inspectionProfile?.digest ? short(r.inspectionProfile.digest, 16) : null]].filter(([, v]) => v !== null && v !== undefined).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, String(v))])),
+            ["Inspection profile", r.inspectionProfile?.digest ? short(r.inspectionProfile.digest, 16) : null]].filter(([, v]) => v !== null && v !== undefined).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v instanceof Node ? v : String(v))])),
           decisions.length ? h("p", {}, "Decisions from this call: ", decisions.map((x) => link(short(x, 12), `#/decisions/${encodeURIComponent(x)}`))) : null)),
         card("Findings and signals", "Rule and place only, never the value.", h("div", { class: "body flush" }, table(["Type", "Rule", "Where", "#Count"], findings.map((f) => h("tr", {}, td(f.type), td(f.rule, "mono"), td(f.path, "mono"), tdn(f.count ?? 1))), "None."))),
         gate.length ? card("Tool gate", r.actionGate.rewritten ? "Enforce mode rewrote the answer." : null, h("div", { class: "body flush" }, table(["Tool", "Mode", "Result", "Why"], gate.map((c) =>
@@ -496,7 +503,8 @@ async function keysPage() {
   return h("div", { class: "keys" }, list.map((k) => card(k.name, `${fmt(k.calls)} calls · last ${ago(k.lastTs)}`, h("div", { class: "body" },
     h("dl", { class: "kv" }, h("dt", {}, "Models"), h("dd", {}, k.models ? k.models.join(", ") : "any"), h("dt", {}, "Providers"), h("dd", {}, k.providers ? k.providers.join(", ") : "both"),
       h("dt", {}, "Use cases"), h("dd", {}, k.useCases ? k.useCases.join(", ") : "every row"), h("dt", {}, "Tools"), h("dd", {}, k.tools ? `${k.tools.mode}: ${k.tools.allow.join(", ")}` : "not limited"),
-      h("dt", {}, "Output text"), h("dd", {}, k.logContent ? chip("logged, redacted", "warn") : "hash only")),
+      h("dt", {}, "Output text"), h("dd", {}, k.logContent ? chip("logged, redacted", "warn") : "hash only"),
+      h("dt", {}, "PII vault"), h("dd", {}, !k.piiVault ? "off" : k.piiRestore ? chip("customer restore", "warn") : chip("tokenized only", "info"))),
     k.budget && !k.budget.error ? h("div", {}, h("div", { class: "section-title" }, `Token budget, per ${k.budget.period}${k.budget.blocked ? " · BLOCKED" : ""}`),
       h("p", { class: "small" }, `Input ${fmt(k.budget.spent.input)} spent + ${fmt(k.budget.reserved.input)} reserved of ${fmt(k.budget.limits.input)}`), meter(k.budget.spent.input, k.budget.reserved.input, k.budget.limits.input),
       h("p", { class: "small" }, `Output ${fmt(k.budget.spent.output)} spent + ${fmt(k.budget.reserved.output)} reserved of ${fmt(k.budget.limits.output)}`), meter(k.budget.spent.output, k.budget.reserved.output, k.budget.limits.output))
@@ -536,7 +544,47 @@ async function livePage() {
     block("Log failures", by("ai_audit_log_write_failures_total", () => "lost after delivery")));
 }
 
-const PAGE_RENDERERS = { overview: overviewPage, decisions: decisionsPage, "use-cases": useCasesPage, flow: flowPage, requests: requestsPage, sessions: sessionsPage, keys: keysPage, integrity: integrityPage, live: livePage };
+async function casesPage() {
+  if (route.id) return caseDetail(route.id);
+  const list = await api(withRange("cases"));
+  return h("div", { class: "page" }, card("Cases", "Requests, policy decisions, reviews and effects linked by x-audit-correlation / --correlation.", h("div", { class: "body flush" }, table(
+    ["Correlation", "Use cases", "Keys", "#Calls", "#Decisions", "PII delivery", "Waiting", "Last activity"],
+    list.map((c) => h("tr", { class: "clickable", onclick: () => go(`#/cases/${encodeURIComponent(c.correlation)}`) },
+      td(short(c.correlation, 28), "mono"), td(c.useCases.join(", ") || "—"), td(c.keys.join(", ") || "—"),
+      tdn(c.calls.length), tdn(c.decisions.length),
+      td(c.piiDeliveries.length ? c.piiDeliveries.map((d) => chip(d, d === "customer" ? "warn" : "info")) : "—"),
+      td(c.waiting ? chip(`${fmt(c.waiting)} waiting`, "warn") : c.unauthorizedEffects ? chip("unauthorized", "bad") : chip("clear", "ok")),
+      td(time(c.lastTs)))),
+    "No correlated cases in this range."))));
+}
+
+async function caseDetail(id) {
+  const c = await api(`cases/${encodeURIComponent(id)}`);
+  return h("div", { class: "page" },
+    h("p", {}, link("← All cases", "#/cases")),
+    h("div", { class: "grid kpis" },
+      kpi("Model calls", c.calls.length, c.keys.join(", ") || "no virtual key"),
+      kpi("Policy decisions", c.decisions.length, c.useCases.join(", ") || "no use case"),
+      kpi("Waiting for review", c.waiting, "decisions", "#/decisions", c.waiting ? "warn" : null),
+      kpi("PII delivery", c.piiDeliveries.join(", ") || "none", "vault mode")),
+    card("Model requests", `Correlation ${c.correlation}`, h("div", { class: "body flush" }, table(
+      ["Time", "Request", "Key", "Use case", "Model", "Outcome", "PII", "#Status", "#Findings"],
+      c.calls.map((r) => h("tr", { class: "clickable", onclick: () => go(`#/requests/${encodeURIComponent(r.id)}`) },
+        td(time(r.ts)), td(short(r.id, 14), "mono"), td(r.key ?? "—"), td(r.useCase ?? "—"), td(r.model ?? "—", "mono"),
+        td(outcomeChip(r.outcome)), td(r.piiDelivery ? chip(r.piiDelivery, r.piiDelivery === "customer" ? "warn" : "info") : "—"),
+        tdn(r.status ?? "—"), tdn(r.findings + r.signals))),
+      "No proxied requests for this correlation."))),
+    card("Policy decisions, reviews and effects", "Decisions linked to this correlation id.", h("div", { class: "body flush" }, table(
+      ["Time", "Decision", "Use case", "State", "Reviews", "Effects"],
+      c.decisions.map((d) => h("tr", { class: "clickable", onclick: () => go(`#/decisions/${encodeURIComponent(d.id)}`) },
+        td(time(d.ts)), td(short(d.id, 14), "mono"), td(d.useCase ?? "—"),
+        td(chip(STATE_LABELS[d.state] ?? d.state, STATE_CHIPS[d.state])),
+        td(d.reviews.length ? d.reviews.map((rv) => `${rv.verdict} (${rv.reviewer})`).join(", ") : "—"),
+        td(d.effects.length ? d.effects.map((ef) => `${ef.action}:${ef.status}${ef.authorized ? "" : " !"}`).join(", ") : "—"))),
+      "No policy decisions for this correlation."))));
+}
+
+const PAGE_RENDERERS = { overview: overviewPage, cases: casesPage, decisions: decisionsPage, "use-cases": useCasesPage, flow: flowPage, requests: requestsPage, sessions: sessionsPage, keys: keysPage, integrity: integrityPage, live: livePage };
 
 function login(message) {
   $("nav").replaceChildren();
@@ -552,11 +600,11 @@ async function watchWaiting() {
   try {
     const o = await api("overview?hours=0");
     const n = o.kpis.waiting;
-    document.title = n ? `(${n}) ai-audit console` : "ai-audit console";
+    document.title = n ? `(${n}) Auditline console` : "Auditline console";
     const badge = document.querySelector('#nav a[href="#/decisions"] .badge');
     if (badge) badge.textContent = fmt(n);
     if (waitingSeen !== null && n > waitingSeen && "Notification" in window && Notification.permission === "granted") {
-      new Notification("ai-audit: a decision waits for you", { body: `${n} decision${n === 1 ? "" : "s"} wait for a review.`, tag: "ai-audit-waiting" });
+      new Notification("Auditline: a decision waits for you", { body: `${n} decision${n === 1 ? "" : "s"} wait for a review.`, tag: "ai-audit-waiting" });
     }
     waitingSeen = n;
   } catch { }

@@ -91,6 +91,19 @@ const seeds = {
       { reserved: { input: 10, output: 10 }, usage: { output: 11 } }, { reserved: { input: 10, output: 10 } }].map((j) => [4, JSON.stringify(j)]),
     ...goldenInputs("verdict", 12).map((s) => [5, s]),
   ].map(([b, s]) => Buffer.concat([Buffer.from([b]), Buffer.from(s)])),
+  policy: [
+    Buffer.concat([Buffer.from([0]), readFileSync(new URL("../examples/evaluation/machining-policy.json", import.meta.url))]),
+    Buffer.concat([Buffer.from([0]), readFileSync(new URL("../examples/evidence-policy/policy.json", import.meta.url))]),
+    Buffer.concat([Buffer.from([1, 0]), Buffer.from(JSON.stringify({ minutes: 42, rate: 4.5, setup: 120, material: 85, llmPrice: 274 }))]),
+  ],
+  pii: [
+    Buffer.from([0, 0, 3, 5, 7, 11, 2, 4, 6]),
+    Buffer.from([0, 1, 1, 2, 3, 4, 5, 6, 7]),
+    Buffer.from([0, 2, 4, 4, 4, 4, 4, 4, 4]),
+    Buffer.from([2, 0, 1, 2]),
+    Buffer.from([2, 1, 1, 2]),
+    Buffer.from([2, 2, 1, 2]),
+  ],
 };
 for (const [target, list] of Object.entries(seeds)) {
   mkdirSync(join(root, "seeds", target), { recursive: true }); mkdirSync(join(root, "corpus", target), { recursive: true }); mkdirSync(join(root, "artifacts", target), { recursive: true });

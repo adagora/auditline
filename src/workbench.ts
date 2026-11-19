@@ -140,7 +140,8 @@ export function renderWorkbench(records: Rec[], digest: string, options: Workben
     const alias = call.requestedModel ? `requested ${safeText(call.requestedModel)}` : "";
     const profile = safeHash(obj(call.inspectionProfile).digest);
     const action = `${label(str(decision.action) || "unknown", ["block", "reject"].includes(str(decision.action)) ? "red" : "blue")}<div class="subtle">${safeText(decision.mode)}${profile !== "—" ? ` · profile ${profile.slice(0, 12)}…` : ""}</div>`;
-    const extra = [decision.sandbox ? `sandbox ${safeText(decision.sandbox)}` : "", call.content === "redacted" ? "redacted output retained" : call.content === "hash" ? "output hash only" : ""].filter(Boolean).join(" · ");
+    const piiDelivery = str(obj(call.pii).delivery);
+    const extra = [decision.sandbox ? `sandbox ${safeText(decision.sandbox)}` : "", piiDelivery ? `pii ${safeText(piiDelivery)}` : "", call.correlation ? `case ${safeText(call.correlation, 32)}` : "", call.content === "redacted" ? "redacted output retained" : call.content === "hash" ? "output hash only" : ""].filter(Boolean).join(" · ");
     return dataRow([safeText(call.ts, 40), `<span id="${anchor("call", str(call.id))}"><a href="#${anchor("investigate", str(call.id))}">${short(call.id)}</a></span>`, `${safeText(call.provider)} / ${safeText(call.model)}`,
       `${safeText(call.systemId)}<div class="subtle">${client}${alias ? ` · ${alias}` : ""}</div>`, session.id ? `${visibleSessions.has(str(session.id)) ? `<a href="#${anchor("session", str(session.id))}">${short(session.id)}</a>` : short(session.id)} · t${safeText(session.turn)}` : "unlinked",
       action, `${status}<div class="subtle">${fmt(findingTotal(decision))} findings ·${fmt(signals.length)} signals${extra ? ` · ${extra}` : ""}</div>`, usage(call)]);
@@ -175,7 +176,8 @@ export function renderWorkbench(records: Rec[], digest: string, options: Workben
     const stopped = decision.action === "block" || decision.action === "reject";
     const upstreamKnown = typeof call.upstreamStatus === "number" && Number.isInteger(call.upstreamStatus);
     const requestFacts = [fact("API route", `${safeText(call.api)} · ${safeText(call.endpoint)}`, "observed record"), fact("Provider / model", `${safeText(call.provider)} · ${safeText(call.model)}`, "observed record"),
-      fact("Client / system", `${safeText(call.virtualKey)} · ${safeText(call.systemId)}`, "observed record"), fact("Context", bytes(context.totalBytes) ? `${fmt(bytes(context.totalBytes))} bytes` : "unknown", bytes(context.totalBytes) ? "observed size" : "not recorded"),
+      fact("Client / system", `${safeText(call.virtualKey)} · ${safeText(call.systemId)}`, "observed record"), fact("Correlation / PII", `${call.correlation ? safeText(call.correlation, 48) : "unlinked"} · ${str(obj(call.pii).delivery) ? `pii ${safeText(obj(call.pii).delivery)}` : "standard"}`, call.correlation || str(obj(call.pii).delivery) ? "observed record" : "not recorded"),
+      fact("Context", bytes(context.totalBytes) ? `${fmt(bytes(context.totalBytes))} bytes` : "unknown", bytes(context.totalBytes) ? "observed size" : "not recorded"),
       fact("Input tokens", fmtCount(values.input), count(values.input) === null ? "unknown" : "provider reported"), fact("Output tokens", fmtCount(values.output), count(values.output) === null ? "unknown" : "provider reported")].join("");
     const findingList = [...findings.map((entry) => `<li>Finding · ${safeText(entry.rule)} · <code>${safeText(entry.path, 256)}</code>${times(entry.count)}</li>`),
       ...Object.entries(obj(decision.findingsOverflow)).map(([rule, n]) => `<li>Finding · ${safeText(rule)} · ${OVERFLOW_PATH}${times(n)}</li>`),

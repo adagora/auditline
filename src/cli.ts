@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { basename } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { AuditLog, AuditLogUnavailable, anchor, prune, report, sha256, stats, validCorrelation, verifyAnchors, type Effect, type Review } from "./audit.js";
 import { recordQdl, verifyDecision } from "./qdl.js";
@@ -22,9 +22,10 @@ import { renderWorkbench } from "./workbench.js";
 import { createConsole } from "./console.js";
 import { awaitVerdict, effectAuthorized } from "./verdict.js";
 import { createAttestation, generateAttestationKeys, parseAttestation, verifyAttestation } from "./attestation.js";
-
+import { AuthorityStore } from "./authority.js";
+import { QualificationStore } from "./qualification.js";
 const [cmd, ...rest] = process.argv.slice(2);
-const { values: a } = parseArgs({ args: rest, options: {
+const { values: a, positionals } = parseArgs({ args: rest, allowPositionals: true, options: {
   "upstream-openai": { type: "string", default: "https://api.openai.com" }, "upstream-anthropic": { type: "string", default: "https://api.anthropic.com" },
   "injection-model": { type: "string" }, "injection-task": { type: "string" }, "injection-url": { type: "string" }, "injection-timeout-ms": { type: "string" },
   mode: { type: "string", default: "redact" }, log: { type: "string", default: "./audit.jsonl" }, port: { type: "string", default: "8787" },
@@ -38,6 +39,8 @@ const { values: a } = parseArgs({ args: rest, options: {
   "timeout-s": { type: "string", default: "600" }, action: { type: "string" }, status: { type: "string" }, code: { type: "string" }, review: { type: "string" },
   "baseline-limit": { type: "string", default: "2" }, "candidate-limit": { type: "string", default: "3" },
   "rotate-bytes": { type: "string", default: String(256 * 1024 * 1024) }, "keep-days": { type: "string" }, "inspect-timeout-ms": { type: "string", default: "5000" },
+  store: { type: "string" }, qualifications: { type: "string" }, spec: { type: "string" }, current: { type: "string" }, digest: { type: "string" },
+  principal: { type: "string" }, request: { type: "string" }, grant: { type: "string" }, reason: { type: "string" },
 } });
 const NOT_REPRODUCED = new Set(["audit_qdl_source_missing", "audit_qdl_source_invalid", "audit_qdl_source_mismatch", "audit_qdl_intent_mismatch", "audit_policy_implementation_missing", "audit_policy_implementation_mismatch"]);
 const log = new AuditLog(a.log!);
@@ -302,5 +305,80 @@ if (cmd === "attest-keygen") {
   } catch (cause) {
     console.error(cause instanceof Error && /^audit_[a-z_]+$/.test(cause.message) ? cause.message : "audit_command_failed"); process.exitCode = 2;
   }
+} else if (cmd === "qualify") {
+  const sub = positionals[0] ?? "";
+  const readJson = (file: string | undefined, code: string) => {
+    if (!file) throw new Error("audit_missing_argument");
+    try { return JSON.parse(readFileSync(resolve(file), "utf8")); } catch { throw new Error(code); }
+  };
+  try {
+    if (!a.store || !["list", "inspect", "capture"].includes(sub)) throw new Error("audit_missing_argument");
+    const store = new QualificationStore(resolve(a.store));
+    if (sub === "list") {
+      console.log(JSON.stringify(store.list().map((p) => ({ digest: p.digest, intent: p.intent, createdAt: p.createdAt, model: p.model, assessment: store.inspect(p) })), null, 2));
+    } else if (sub === "inspect") {
+      if (!a.digest) throw new Error("audit_missing_argument");
+      const p = store.load(a.digest);
+      const current = a.current ? readJson(a.current, "audit_invalid_current") : undefined;
+      const assessment = store.inspect(p, current);
+      console.log(JSON.stringify({ package: p, assessment }, null, 2));
+      process.exitCode = assessment.integrity && assessment.evidencePassed ? 0 : 1;
+    } else {
+      const specPath = resolve(a.spec ?? "");
+      const spec = readJson(a.spec, "audit_invalid_spec") as Record<string, unknown>;
+      const base = dirname(specPath);
+      const { components: selections, suiteFile, reportFile, calibrationFile, ...metadata } = spec;
+      if (!selections || typeof selections !== "object" || Array.isArray(selections) || typeof suiteFile !== "string" || typeof reportFile !== "string") throw new Error("audit_invalid_spec");
+      const components = Object.fromEntries(Object.entries(selections as Record<string, { root?: unknown; files?: unknown }>).map(([name, sel]) => {
+        if (!sel || typeof sel.root !== "string" || !Array.isArray(sel.files)) throw new Error("audit_invalid_spec");
+        return [name, store.capture(resolve(base, sel.root), sel.files as string[])];
+      }));
+      const p = store.create({
+        ...(metadata as Parameters<QualificationStore["create"]>[0]),
+        components,
+        suite: store.put(readFileSync(resolve(base, suiteFile))),
+        report: store.put(readFileSync(resolve(base, reportFile))),
+        calibration: typeof calibrationFile === "string" ? store.put(readFileSync(resolve(base, calibrationFile))) : null,
+      });
+      const assessment = store.inspect(p);
+      console.log(JSON.stringify({ package: p, assessment }, null, 2));
+      process.exitCode = assessment.integrity && assessment.evidencePassed ? 0 : 1;
+    }
+  } catch (cause) {
+    console.error(cause instanceof Error && /^audit_[a-z_]+$/.test(cause.message) ? cause.message : "audit_command_failed");
+    process.exitCode = 2;
+  }
+} else if (cmd === "authority") {
+  const sub = positionals[0] ?? "";
+  const readJson = (file: string | undefined, code: string) => {
+    if (!file) throw new Error("audit_missing_argument");
+    try { return JSON.parse(readFileSync(resolve(file), "utf8")); } catch { throw new Error(code); }
+  };
+  try {
+    if (!a.store || !a.qualifications || !["approve", "activate", "revoke", "authorize", "view"].includes(sub)) throw new Error("audit_missing_argument");
+    const qualifications = new QualificationStore(resolve(a.qualifications));
+    const authority = new AuthorityStore(resolve(a.store), qualifications);
+    if (sub === "approve") {
+      const grant = authority.approve(readJson(a.principal, "audit_invalid_principal"), readJson(a.request, "audit_invalid_request"), readJson(a.current, "audit_invalid_current"));
+      console.log(JSON.stringify(grant, null, 2));
+    } else if (sub === "activate") {
+      if (!a.grant) throw new Error("audit_missing_argument");
+      const grant = authority.activate(readJson(a.principal, "audit_invalid_principal"), a.grant, readJson(a.current, "audit_invalid_current"));
+      console.log(JSON.stringify(grant, null, 2));
+    } else if (sub === "revoke") {
+      if (!a.grant || !a.reason) throw new Error("audit_missing_argument");
+      authority.revoke(readJson(a.principal, "audit_invalid_principal"), a.grant, a.reason);
+      console.log(JSON.stringify({ revoked: a.grant, reason: a.reason }));
+    } else if (sub === "authorize") {
+      const grant = authority.authorize(readJson(a.request, "audit_invalid_request"), readJson(a.current, "audit_invalid_current"));
+      console.log(JSON.stringify({ authorized: true, grant }, null, 2));
+    } else {
+      console.log(JSON.stringify(authority.view(readJson(a.principal, "audit_invalid_principal")), null, 2));
+    }
+  } catch (cause) {
+    const code = cause instanceof Error && /^audit_[a-z_]+$/.test(cause.message) ? cause.message : "audit_command_failed";
+    console.error(code);
+    process.exitCode = sub === "authorize" && code.startsWith("audit_authority_") ? 1 : 2;
+  }
 } else if (cmd === "report") console.log(report(log, a.from!, a.to!).md);
-else { console.error("usage: ai-audit serve|vault-prune|console|await|effect|verify|anchor|rotate|prune|report|stats|context|workbench|keygen|profile|scrub|check-quotes|decide|approve|replay|lab|receipt|verify-receipt|attest-keygen|attest|verify-attestation|policies [options]; see README.md for command examples"); process.exit(2); }
+else { console.error("usage: auditline serve|vault-prune|console|await|effect|verify|anchor|rotate|prune|report|stats|context|workbench|keygen|profile|scrub|check-quotes|decide|approve|replay|lab|receipt|verify-receipt|attest-keygen|attest|verify-attestation|policies|qualify|authority [options]; see README.md for command examples"); process.exit(2); }

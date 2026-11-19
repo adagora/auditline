@@ -175,6 +175,6 @@ test("per-key tool lists apply only to their key, and report lists the tools eac
     assert.equal(open.actionGate, undefined);
     const { md } = report(proxy.log, "1970", "9999");
     assert.match(md, /- quote-agent \/ get_price: 1/); assert.match(md, /- open-agent \/ get_price: 1/);
-    assert.match(md, /- observe get_price \(poza listą klucza\): 1/);
+    assert.match(md, /- observe get_price \(outside key allowlist\): 1/);
   } finally { proxy.close(); up.close(); }
 });

@@ -49,7 +49,7 @@ test("versions per use case in order of first use; a rollback is the current ver
   const [noPrograms] = await withChanges([machining], records.filter((r) => r.kind !== "program"));
   assert.equal(noPrograms.versions[1].changes, null);
   const { md, policies } = report(log, "2000", "2100");
-  assert.equal(policies.length, 2); assert.match(md, /## Wersje polityk/); assert.match(md, /- v1 \(aktualna\) ap_[0-9a-f]{12}… „CAD machining quote policy v1”: decyzje 3/);
+  assert.equal(policies.length, 2); assert.match(md, /## Policy versions/); assert.match(md, /- v1 \(current\) ap_[0-9a-f]{12}… "CAD machining quote policy v1": decisions 3/);
 });
 
 test("ai-audit policies prints one JSON line per use case with versions and changes", { skip }, async () => {

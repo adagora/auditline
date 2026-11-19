@@ -6,7 +6,7 @@ import { basename } from "node:path";
 import type { AddressInfo } from "node:net";
 import { AuditLog, evidenceGaps, useCaseSummary, verifyAnchors, type Rec, type Review, type SeriesCheck } from "./audit.js";
 import { BudgetStore, type TokenBudget } from "./budget.js";
-import { decisionViews, flow, requestPath, suggestions, type ConfigLike } from "./consoleModel.js";
+import { caseViews, decisionViews, flow, requestPath, suggestions, type ConfigLike } from "./consoleModel.js";
 import { listSessions, sessionView } from "./contextView.js";
 import { verifyDecision } from "./qdl.js";
 import { inspect } from "./scan.js";
@@ -89,7 +89,9 @@ export function createConsole(o: ConsoleOptions) {
       log: { path: o.log.path, files: chain.files, records: chain.records, chain: { ok: chain.ok, file: chain.file, badLine: chain.badLine, reason: chain.reason }, lastTs: records[records.length - 1]?.ts ?? null },
       range: { from: from || null }, reviewer: reviewer ?? null, config: o.configPath ? basename(o.configPath) : null, metrics: !!o.metricsUrl,
       notify: { configured: !!o.notifyUrl, failures: notifyFailures },
-      kpis: { requests: f.total, delivered: f.outcomes.delivered ?? 0, blocked: (f.outcomes.blocked ?? 0) + (f.outcomes.rejected ?? 0), refused, held, waiting: waiting.length, decisions: decisions.length },
+      piiVault: cfg.piiVault ? { configured: true, ttlSeconds: cfg.piiVault.ttlSeconds ?? 86400 } : { configured: false },
+      kpis: { requests: f.total, delivered: f.outcomes.delivered ?? 0, blocked: (f.outcomes.blocked ?? 0) + (f.outcomes.rejected ?? 0), refused, held, waiting: waiting.length, decisions: decisions.length,
+        cases: caseViews(recent).length, piiTokenized: calls.filter((c) => c.pii?.delivery === "tokenized").length, piiRestored: calls.filter((c) => c.pii?.delivery === "customer").length },
       attention, suggestions: suggestions(recent, summary, cfg), flow: f,
     };
   };
@@ -105,6 +107,8 @@ export function createConsole(o: ConsoleOptions) {
       const tools: Record<string, number> = {};
       for (const c of mine) for (const t of c.toolCalls ?? []) tools[t.name] = (tools[t.name] ?? 0) + 1;
       return { name: k.name, models: k.models ?? null, providers: k.providers ?? null, tools: k.tools ?? null, useCases: k.useCases ?? null, logContent: k.logContent === true,
+        piiRestore: k.piiRestore === true, piiVault: !!cfg.piiVault,
+        piiDeliveries: { tokenized: mine.filter((c) => c.pii?.delivery === "tokenized").length, customer: mine.filter((c) => c.pii?.delivery === "customer").length },
         tokenBudget: k.tokenBudget ?? null, budget: budget ?? null, calls: mine.length, lastTs: mine[mine.length - 1]?.ts ?? null, toolsCalled: tools };
     });
   };
@@ -124,11 +128,11 @@ export function createConsole(o: ConsoleOptions) {
 
   const requests = (url: URL) => {
     const { records } = load(), from = since(url), limit = Math.min(Number(url.searchParams.get("limit")) || 300, 2000);
-    const wanted = url.searchParams.get("outcome"), useCase = url.searchParams.get("useCase");
+    const wanted = url.searchParams.get("outcome"), useCase = url.searchParams.get("useCase"), correlation = url.searchParams.get("correlation");
     const rows = within(records, from).flatMap((r: any) => {
       const path = requestPath(r);
-      if (!path || (wanted && path.outcome !== wanted) || (useCase && r.useCase !== useCase)) return [];
-      return [{ id: r.id, ts: r.ts, kind: r.kind, key: r.virtualKey ?? null, useCase: r.useCase ?? null, model: r.model ?? r.requestedModel ?? null, provider: r.provider ?? null,
+      if (!path || (wanted && path.outcome !== wanted) || (useCase && r.useCase !== useCase) || (correlation && r.correlation !== correlation)) return [];
+      return [{ id: r.id, ts: r.ts, kind: r.kind, key: r.virtualKey ?? null, useCase: r.useCase ?? null, correlation: r.correlation ?? null, pii: r.pii ?? null, model: r.model ?? r.requestedModel ?? null, provider: r.provider ?? null,
         outcome: path.outcome, stoppedAt: path.stoppedAt ?? null, code: path.code ?? null, status: path.status ?? null, stages: path.stages,
         findings: r.decision ? [...(r.decision.findings ?? [])].length : 0, signals: r.decision?.signals?.length ?? 0, usage: r.usage ?? null, latencyMs: r.latencyMs ?? null, session: r.session?.id ?? null }];
     });
@@ -138,8 +142,15 @@ export function createConsole(o: ConsoleOptions) {
   const requestDetail = (id: string) => {
     const { records } = load(), r = records.find((x) => (x.kind === "llm-call" || x.kind === "refusal") && x.id === id) as any;
     if (!r) throw new ConsoleError(404, "audit_console_not_found");
-    const decisions = decisionViews(records).filter((d) => d.llmCallId === id).map((d) => d.id);
+    const decisions = decisionViews(records).filter((d) => d.llmCallId === id || (r.correlation && d.correlation === r.correlation)).map((d) => d.id);
     return { record: strip(r), path: requestPath(r) ?? null, decisions };
+  };
+
+  const cases = (url: URL) => caseViews(within(load().records, since(url))).slice(0, 300);
+  const caseDetail = (correlation: string) => {
+    const found = caseViews(load().records).find((c) => c.correlation === correlation);
+    if (!found) throw new ConsoleError(404, "audit_console_not_found");
+    return found;
   };
 
   const outputNames = new Map<string, string[] | null>();
@@ -194,6 +205,8 @@ export function createConsole(o: ConsoleOptions) {
       if (req.method === "GET") {
         if (section === "overview" && !id) return json(res, 200, overview(url));
         if (section === "decisions" && !id) return json(res, 200, await decisions());
+        if (section === "cases" && !id) return json(res, 200, cases(url));
+        if (section === "cases" && id && !action) return json(res, 200, caseDetail(id));
         if (section === "use-cases" && !id) return json(res, 200, useCases(url));
         if (section === "requests" && !id) return json(res, 200, requests(url));
         if (section === "requests" && id && !action) return json(res, 200, requestDetail(id));

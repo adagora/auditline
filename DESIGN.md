@@ -19,12 +19,12 @@ Most company RAG systems (docs, translation, quoting) are **not** high-risk (Ann
 ## GDPR
 By default only `sha256(input)` is stored. Optionally `redactedInput` (masks e-mail, phone, PESEL — simple heuristic, no guarantee). Hashes of short data can be reversed with a dictionary — use a keyed HMAC in production.
 
-## Quinelings (Apache-2.0)
-**Gives:** the idea that a decision step is a bounded (step-limited), deterministic program with exact source, so it can be reproduced and re-run. Here: `step.sourceHash` + `replay()` in `node:vm` with step and time limits, plus the optional QDL path.
+## Native bounded policy engine (inspired by Quinelings)
+**Gives:** bounded, deterministic, zero-dependency calculation and evidence-gate programs (`auditline-policy` v1/v2) with dimensional units, canonical source hashing, and implementation-pinned v3 JSON/SVG receipts.
 **Does not give:** logs, retention, integrity chain, human oversight, reports, transparency (Art. 50), or compliance out of the box.
 
 ## Prototype limits
-- Local file: the hash chain detects edits/deletions; swapping the whole file needs anchors (`ai-audit anchor`, keep them elsewhere, e.g. WORM/S3 Object Lock).
-- The `steps` registry for vm replay is in memory; QDL records are self-contained.
+- Local file: the hash chain detects edits/deletions; swapping the whole file needs anchors (`auditline anchor`, keep them elsewhere, e.g. WORM/S3 Object Lock).
+- Native policy records are self-contained and replayable without external packages; legacy `node:vm` step replay is in-memory and not a security sandbox.
 - `node:vm` is not a security sandbox — only for your own trusted step code.
 - The deterministic step is reproducible, the LLM answer is not (it is only logged).

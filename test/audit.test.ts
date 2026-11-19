@@ -74,7 +74,7 @@ test("report numbers match the log", () => {
   assert.match(md, /d\.pdf s\.3: 2/); assert.match(md, /e\.pdf s\.1: 1/); assert.match(md, /OK ✅/);
   assert.equal(report(log, "2100-01-01", "2200-01-01").stats.decisions, 0);
   const lines = readFileSync(log.path, "utf8").split("\n"); lines[0] = lines[0].replace('"odp"', '"zmienione"'); writeFileSync(log.path, lines.join("\n"));
-  assert.match(report(log, "2000-01-01", "2100-01-01").md, /NARUSZONA ❌ \(linia 1/);
+  assert.match(report(log, "2000-01-01", "2100-01-01").md, /BROKEN ❌ \(line 1/);
 });
 
 test("found by fuzzing: redacting a stored input takes linear time", () => {

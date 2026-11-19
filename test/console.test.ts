@@ -163,3 +163,42 @@ test("the README state machine has the console's states, labels and order, and e
   while (next.has(chain[chain.length - 1]) && chain.length <= STAGES.length) chain.push(next.get(chain[chain.length - 1])!);
   assert.deepEqual(chain, [...STAGES]);
 });
+
+test("console groups correlated calls and decisions into cases and exposes PII vault delivery telemetry", async () => {
+  const up = await mockUpstream();
+  const vaultDir = mkdtempSync(join(tmpdir(), "console-pii-vault-"));
+  const vaultKey = Buffer.alloc(32, 7);
+  const keys = [
+    { name: "agent", sha256: sha256("vk-agent"), useCases: ["assist"] },
+    { name: "delivery", sha256: sha256("vk-delivery"), useCases: ["assist"], piiRestore: true },
+  ];
+  const gateway = { piiVault: { directory: vaultDir, ttlSeconds: 3600 }, keys, useCases: { assist: { tier: "assist" } } };
+  const proxy = await startProxy(up.url, "redact", { ...gateway, piiVault: { directory: vaultDir, ttlSeconds: 3600, key: vaultKey } });
+  const configPath = join(mkdtempSync(join(tmpdir(), "console-pii-cfg-")), "gateway.json");
+  writeFileSync(configPath, JSON.stringify(gateway));
+  const app = createConsole({ log: proxy.log, configPath });
+  await new Promise<void>((r) => app.server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`, auth = { authorization: `Bearer ${app.token}` };
+  const get = async (path: string) => { const r = await fetch(base + path, { headers: auth }); assert.equal(r.status, 200, path); return r.json() as Promise<Record<string, unknown>>; };
+  try {
+    const scope = "11111111-1111-4111-8111-111111111111", correlation = "conv-console-case-1";
+    const headers = { "x-audit-use-case": "assist", "x-audit-correlation": correlation, "x-audit-pii-scope": scope };
+    assert.equal((await fetch(proxy.url + "/v1/chat/completions", chat("vk-agent", { model: "m", messages: [{ role: "user", content: "mail ada@example.com" }] }, headers))).status, 200);
+    assert.equal((await fetch(proxy.url + "/v1/chat/completions", chat("vk-delivery", { model: "m", messages: [{ role: "user", content: "mail ada@example.com" }] }, headers))).status, 200);
+    proxy.log.record({ systemId: "shop", useCase: "assist", correlation, input: "order", output: [100] });
+    const cases = await get("/api/cases?hours=0") as unknown as Array<Record<string, unknown>>;
+    assert.equal(cases.length, 1);
+    assert.equal(cases[0].correlation, correlation);
+    const detail = await get(`/api/cases/${encodeURIComponent(correlation)}`);
+    assert.equal((detail.calls as unknown[]).length, 2);
+    assert.equal((detail.decisions as unknown[]).length, 1);
+    assert.deepEqual(detail.piiDeliveries, ["customer", "tokenized"]);
+    const keyRows = await get("/api/keys") as unknown as Array<Record<string, unknown>>;
+    assert.equal(keyRows[0].piiRestore, false);
+    assert.equal(keyRows[1].piiRestore, true);
+    const overview = await get("/api/overview?hours=0");
+    assert.equal((overview.kpis as Record<string, number>).cases, 1);
+    assert.equal((overview.kpis as Record<string, number>).piiTokenized, 1);
+    assert.equal((overview.kpis as Record<string, number>).piiRestored, 1);
+  } finally { app.server.close(); proxy.close(); up.close(); }
+});

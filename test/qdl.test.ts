@@ -82,7 +82,7 @@ test("llmCallId links the decision; approve and report treat the :qdl companion 
   await recordQdl(log, entry, { intent: quoteIntent }, { ...quote, minutes: -5 });
   const { stats, qdl, md } = report(log, "2000", "2100");
   assert.deepEqual([stats.decisions, stats.reviewed, stats.unreviewed, stats.withReplayableStep], [2, 1, 1, 2]);
-  assert.deepEqual(qdl, { completed: 1, refused: 1, failed: 0 }); assert.match(md, /## Kroki polityk/);
+  assert.deepEqual(qdl, { completed: 1, refused: 1, failed: 0 }); assert.match(md, /## Policy steps/);
   const lines = readFileSync(log.path, "utf8").trim().split("\n"), i = lines.findIndex((l) => l.includes('"qdl"'));
   const edited = JSON.parse(lines[i]); edited.qdl.inputs.rate = 3.5; lines[i] = JSON.stringify(edited);
   const copy = new AuditLog(log.path + ".edited"); writeFileSync(copy.path, lines.join("\n") + "\n");

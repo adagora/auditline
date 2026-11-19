@@ -16,10 +16,19 @@ export interface Flow { total: number; offPath: number; stages: FlowStage[]; out
 export type DecisionState = "waiting" | "acted" | Review["decision"];
 export interface DecisionAction { action: string; status: string }
 export interface DecisionView {
-  id: string; ts: string; systemId?: string; useCase?: string; llmCallId?: string; state: DecisionState; output: unknown; outputNames?: string[]; actions: DecisionAction[]; params?: Record<string, unknown>;
+  id: string; ts: string; systemId?: string; useCase?: string; llmCallId?: string; correlation?: string; state: DecisionState; output: unknown; outputNames?: string[]; actions: DecisionAction[]; params?: Record<string, unknown>;
   qdl?: { status: string; sourceHash?: string; program?: string; inputs?: unknown; error?: unknown };
   reviews: { verdict: Review["decision"]; reviewer: string; at: string; note?: string }[];
   effects: { id: string; ts: string; action: string; status: string; code?: string; review?: string; authorized: boolean }[];
+}
+export interface CaseRequestSummary {
+  id: string; ts: string; kind: "llm-call" | "refusal"; key: string | null; useCase: string | null; model: string | null; provider: string | null;
+  outcome: Outcome; status: number | null; findings: number; signals: number; piiDelivery: string | null;
+}
+export interface CaseView {
+  correlation: string; firstTs: string; lastTs: string; useCases: string[]; keys: string[];
+  calls: CaseRequestSummary[]; decisions: DecisionView[]; piiDeliveries: string[];
+  waiting: number; unauthorizedEffects: number;
 }
 export interface Suggestion { id: string; severity: "info" | "warn"; title: string; detail: string; evidence: string[]; snippet?: string }
 export interface ConfigLike { useCases?: Record<string, any>; keys?: { name: string; tools?: { mode: string; allow: string[] }; useCases?: string[] }[]; actionGate?: unknown }
@@ -117,11 +126,61 @@ export function decisionViews(records: readonly Rec[]): DecisionView[] {
     const q = steps.get(d.id), history = reviews.get(d.id) ?? [], actions = proposedActions(d.output), done = effects.get(d.id) ?? [];
     const byRule = done.some((e) => actions.some((p) => p.action === e.action && p.status === "simulated"));
     return {
-      id: d.id, ts: d.ts, systemId: d.systemId, useCase: d.useCase, llmCallId: d.llmCallId, output: d.output, actions, ...(d.params && { params: d.params }),
+      id: d.id, ts: d.ts, systemId: d.systemId, useCase: d.useCase, llmCallId: d.llmCallId, ...(d.correlation && { correlation: d.correlation }), output: d.output, actions, ...(d.params && { params: d.params }),
       state: history.length ? history[history.length - 1].verdict : byRule ? "acted" : "waiting", reviews: history, effects: done,
       ...(q && { qdl: { status: q.status ?? "completed", sourceHash: q.sourceHash, program: q.sourceHash ? programs.get(q.sourceHash) : undefined, inputs: q.inputs, error: q.error } }),
     };
   }).reverse();
+}
+
+export function caseViews(records: readonly Rec[]): CaseView[] {
+  const decisions = decisionViews(records);
+  const byId = new Map<string, { calls: CaseRequestSummary[]; decisions: DecisionView[]; useCases: Set<string>; keys: Set<string>; pii: Set<string>; times: string[] }>();
+  const bucket = (id: string) => {
+    let entry = byId.get(id);
+    if (!entry) { entry = { calls: [], decisions: [], useCases: new Set(), keys: new Set(), pii: new Set(), times: [] }; byId.set(id, entry); }
+    return entry;
+  };
+  for (const r of records) {
+    const row = r as Rec & { correlation?: unknown; virtualKey?: unknown; model?: unknown; requestedModel?: unknown; provider?: unknown; pii?: { delivery?: unknown }; decision?: { findings?: unknown[]; signals?: unknown[] } };
+    if ((row.kind !== "llm-call" && row.kind !== "refusal") || typeof row.correlation !== "string" || !row.correlation) continue;
+    const path = requestPath(row);
+    if (!path) continue;
+    const entry = bucket(row.correlation);
+    const delivery = typeof row.pii?.delivery === "string" ? row.pii.delivery : null;
+    entry.calls.push({
+      id: String(row.id), ts: String(row.ts), kind: row.kind,
+      key: typeof row.virtualKey === "string" ? row.virtualKey : null,
+      useCase: typeof row.useCase === "string" ? row.useCase : null,
+      model: typeof row.model === "string" ? row.model : typeof row.requestedModel === "string" ? row.requestedModel : null,
+      provider: typeof row.provider === "string" ? row.provider : null,
+      outcome: path.outcome, status: path.status ?? null,
+      findings: Array.isArray(row.decision?.findings) ? row.decision.findings.length : 0,
+      signals: Array.isArray(row.decision?.signals) ? row.decision.signals.length : 0,
+      piiDelivery: delivery,
+    });
+    if (typeof row.useCase === "string") entry.useCases.add(row.useCase);
+    if (typeof row.virtualKey === "string") entry.keys.add(row.virtualKey);
+    if (delivery) entry.pii.add(delivery);
+    if (typeof row.ts === "string") entry.times.push(row.ts);
+  }
+  for (const d of decisions) {
+    if (!d.correlation) continue;
+    const entry = bucket(d.correlation);
+    entry.decisions.push(d);
+    if (d.useCase) entry.useCases.add(d.useCase);
+    if (d.ts) entry.times.push(d.ts);
+  }
+  return [...byId.entries()].map(([correlation, entry]): CaseView => {
+    const times = [...entry.times].sort();
+    return {
+      correlation, firstTs: times[0] ?? "", lastTs: times[times.length - 1] ?? "",
+      useCases: [...entry.useCases].sort(), keys: [...entry.keys].sort(),
+      calls: entry.calls, decisions: entry.decisions, piiDeliveries: [...entry.pii].sort(),
+      waiting: entry.decisions.filter((d) => d.state === "waiting").length,
+      unauthorizedEffects: entry.decisions.reduce((n, d) => n + d.effects.filter((e) => e.status === "done" && !e.authorized).length, 0),
+    };
+  }).sort((a, b) => (a.lastTs < b.lastTs ? 1 : a.lastTs > b.lastTs ? -1 : a.correlation.localeCompare(b.correlation)));
 }
 
 const nextTier = (tier: Tier): Tier | undefined => tier === "off" || tier === "transact" ? undefined : TIERS[TIERS.indexOf(tier) + 1];

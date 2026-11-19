@@ -100,9 +100,9 @@ test("October keeps the full-log version number and counts only October", { skip
   assert.equal(period.policies[0].versions.length, 1);
   assert.equal(periodV2?.current, false);
   assert.equal(full.policies[0].versions.find((v) => v.name === "Floor quote November")?.current, true);
-  assert.match(period.md, /Wersje są numerowane z całego dziennika/);
-  assert.match(period.md, /„aktualna” oznacza wersję ostatniej decyzji w całym dzienniku, nie ostatnią w tym oknie/);
-  assert.doesNotMatch(period.md, /v2 \(aktualna\)/);
+  assert.match(period.md, /Versions are numbered across the full log/);
+  assert.match(period.md, /current marks the version of the latest decision in the full log/);
+  assert.doesNotMatch(period.md, /v2 \(current\)/);
 });
 
 test("a sensitive refusal, a missing companion and a missing program are not reconstructible", { skip, timeout: 60_000 }, async () => {
@@ -128,7 +128,7 @@ test("a sensitive refusal, a missing companion and a missing program are not rec
   assert.equal(replayableQdl(recs, good.decision.id), true);
   assert.equal(view.stats.withReplayableStep, 1);
   assert.deepEqual(view.evidence.map((g) => g.reason).sort(), ["companion-missing", "not-reconstructible", "program-missing"]);
-  assert.match(view.md, /## Niepełne dowody decyzji/);
+  assert.match(view.md, /## Incomplete decision evidence/);
   const missingProgram = await verifyDecision(log, dropped.decision.id);
   assert.equal(missingProgram.ok, false);
   assert.equal(missingProgram.consistency.reason, "program-missing");

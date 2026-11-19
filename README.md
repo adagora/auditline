@@ -60,7 +60,7 @@ For one local Codex session, run `npm run codex:proxy` from the repo root. It bu
 
 ```bash
 git clone https://github.com/adagora/auditline.git
-cd ai-audit
+cd auditline
 npm ci && npm run build
 
 keygen_out=$(node dist/src/cli.js keygen --name agent)
@@ -325,7 +325,7 @@ Node `22.23.4` or later on the 22 line, `24.22.1` or later on the 24 line, or `2
 
 ```bash
 git clone https://github.com/adagora/auditline.git
-cd ai-audit
+cd auditline
 npm ci
 npm run build
 node dist/src/cli.js serve --mode redact --log audit.jsonl
@@ -454,6 +454,7 @@ After `npm link`, the binary is `ai-audit`. The examples below use that name. `n
 | Command | Example | Effect |
 |---|---|---|
 | `serve` | `ai-audit serve --mode redact --log audit.jsonl --port 8787` | Listens. Default host is `127.0.0.1`. |
+| `vault-prune` | `auditline vault-prune --config gateway.json` | Authenticates and deletes expired encrypted PII vault entries. |
 | `console` | `ai-audit console --log audit.jsonl --config gateway.json --reviewer ada` | Opens the operator console on `127.0.0.1:8793`. See [Operator console](#operator-console). |
 | `verify` | `ai-audit verify --log audit.jsonl` | Recomputes the chain, and accepts a line only byte for byte as ai-audit wrote it. Exit 0 when it matches, 1 when it does not. |
 | `verify` | `ai-audit verify --log audit.jsonl --anchors anchors.jsonl` | Also catches a swapped or truncated file. |
@@ -481,7 +482,8 @@ After `npm link`, the binary is `ai-audit`. The examples below use that name. `n
 | `attest` | `ai-audit attest --log audit.jsonl --decision ID --verdict approved --private-key reviewer.pem --output decision.attestation.json` | Signs the replayable decision, latest matching review record and log checkpoint. |
 | `verify-attestation` | `ai-audit verify-attestation --input decision.svg --attestation decision.attestation.json --public-key reviewer.pub.pem` | Replays the receipt and verifies the detached signature with the supplied key. |
 | `policies` | `ai-audit policies --system-id shop --use-case quote` | One JSON object per policy version on that use case. |
-
+| `qualify` | `auditline qualify capture --store q-store --spec spec.json` | Captures, lists or inspects content-addressed qualification packages from evaluation reports. |
+| `authority` | `auditline authority approve|activate|revoke|authorize|view --store a-store --qualifications q-store ...` | Manages explicit bounded authority grants tied to verified qualification packages. |
 ### Share a policy decision
 
 ```sh
@@ -682,8 +684,8 @@ It prints a URL with a token, for example `http://127.0.0.1:8793/#token=…`. Op
 | Page | What it shows |
 |---|---|
 | Overview | What needs attention now: decisions waiting for a review, held tool calls, refusals, a broken chain or a blocked budget. Suggestions from fixed rules, each with its evidence and the JSON to paste, for example a use case ready for a higher tier or a tool held again and again. |
+| Cases | Proxied requests, policy decisions, reviews and effects grouped by `x-audit-correlation` / `--correlation`, with PII vault delivery badges. |
 | Decisions | The review queue. For each decision: the action the rule proposes, the result, the inputs, the program and its verdict. **Run the rule again** replays it in memory and lists each computed step. **Approve**, **Override** and **Reject** write the same record as `approve`. |
-| Use cases | Each row of the use-case table with its calls, blocks, refusals, held tools, tokens and override rate. |
 | Request flow | The state machine every request goes through: key, use case, route and body, model, inspection, decision, token budget, provider, tool gate, record. Each state shows how many requests reached it and where they stopped. |
 | Requests | One row per request or refusal. A request opens with its path through the state machine and the context sent to the model: each block in prompt order, its kind, size and age, the first changed byte, and what made the context large. |
 | Sessions and context | How the context of a conversation grew, turn by turn, with cache reads, writes and busts. |
@@ -1114,9 +1116,9 @@ The provider key is added as the upstream credential after the scan, from the pr
 
 The forwarded request, original or redacted, goes to the upstream URL. Default is `https://api.openai.com` or `https://api.anthropic.com`. Metrics, the audit log and the session key stay local. `/metrics` publishes counters to whoever can open the port.
 
-### Do I have to run Quinelings?
+### Do I have to install Quinelings?
 
-No. `serve`, `verify`, `scrub`, `check-quotes` and redaction work without it. Install it when a model writes the policy, or when the policy source has to survive a process restart inside the log. A short trusted function can be recorded with the built-in step log instead.
+No. The external `@quinelings/agent-sdk` package was removed to avoid supply-chain dependencies. Auditline includes its own zero-dependency native bounded policy interpreter (`auditline-policy` v1/v2) built on Node's standard library.
 
 ### Why did `verify` succeed and an anchor check fail?
 

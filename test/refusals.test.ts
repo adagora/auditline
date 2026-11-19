@@ -71,7 +71,7 @@ test("a refusal flood keeps details of the first refusals in a minute and one su
   assert.equal(summary.kind, "refusal"); assert.equal(summary.suppressed, 2);
   assert.ok(summary.from <= records[0].ts && summary.to >= records[2].ts);
   assert.deepEqual(report(p.log, "1970", "9999").refusals, { recorded: 3, suppressed: 2 });
-  assert.match(report(p.log, "1970", "9999").md, /limit na minutę\): 2/);
+  assert.match(report(p.log, "1970", "9999").md, /per-minute cap\): 2/);
   assert.deepEqual(p.log.verifyChain(), { ok: true });
 });
 
