@@ -238,6 +238,8 @@ function renderStats(data) {
   stat(usage, { label: "Policy decisions", value: logs.real ? null : logs.decisions, sub: logs.real ? REAL_LOG_NOTE : `${fmt(logs.reviews)} reviews recorded` });
   stat(usage, { label: "Log write failures", sub: `${fmt(c.logUnavailable)} refused because the log was unavailable`,
     status: c.logWriteFailures ? { tone: "warning", text: `${fmt(c.logWriteFailures)} lost` } : { tone: "good", text: "None" } });
+  stat(usage, { label: "PII vault errors", sub: `${fmt(c.configReloadsOk ?? 0)} reloads ok · ${fmt(c.configReloadsFailed ?? 0)} rejected · gen ${fmt(c.configGeneration ?? 1)}`,
+    status: c.piiVaultErrors ? { tone: "critical", text: `${fmt(c.piiVaultErrors)} failed` } : { tone: "good", text: "None" } });
   stat(usage, { label: "Attachments inspected", value: c.attachments, sub: `${fmt(c.quinelings)} Quinelings events seen` });
 }
 

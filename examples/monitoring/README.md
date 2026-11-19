@@ -87,8 +87,9 @@ Wait for the next 15-second scrape, then refresh Grafana. The sessions command a
 | Tool call held by the gate | held calls in 5 min > 0 | warning |
 | Refusal spike (401 or 403) | refused keys or models in 5 min > 10 | warning |
 | Budget accounting failed | budget failures in 5 min > 0 | warning |
+| PII vault failed closed | PII vault errors in 5 min > 0 | critical |
+| Gateway config hot-reload rejected | failed hot-reloads in 5 min > 0 | warning |
 | Unknown token usage rising | calls without usage / 2xx calls over 30 min > 20%, for 15 min | warning |
-
 Rules evaluate every minute. The defaults are in `grafana/provisioning/alerting/rules.yml`.
 
 ## Test an alert

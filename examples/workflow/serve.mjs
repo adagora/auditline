@@ -402,6 +402,10 @@ const summarize = (samples) => {
     refusalsSuppressed: sum("ai_audit_refusals_suppressed_total"), logWriteFailures: sum("ai_audit_log_write_failures_total"), logUnavailable: sum("ai_audit_log_unavailable_total"),
     upstream: by("ai_audit_upstream_responses_total", "class"), upstreamErrors: sum("ai_audit_upstream_errors_total"), unknownUsage: sum("ai_audit_unknown_usage_total"),
     attachments: sum("ai_audit_attachments_inspected_total"), quinelings: sum("ai_audit_quineling_events_total"), budgetFailures: sum("ai_audit_budget_failures_total"),
+    piiVaultErrors: sum("ai_audit_pii_vault_errors_total"), piiVaultErrorsByReason: by("ai_audit_pii_vault_errors_total", "reason"),
+    configReloadsOk: sum("ai_audit_config_reloads_total", (l) => l.result === "ok"),
+    configReloadsFailed: sum("ai_audit_config_reloads_total", (l) => l.result === "failed"),
+    configGeneration: sum("ai_audit_config_generation"),
   };
 };
 const readCounters = async (source) => summarize(parseMetrics(source === "real"
@@ -411,6 +415,7 @@ const brokenChains = () => modes.filter((mode) => !logs[mode].verifyChain().ok).
 const alertInputs = (c) => ({
   logIntegrity: c.logWriteFailures + c.logUnavailable, held: c.actionGate.filter((g) => g.result === "hold").reduce((a, g) => a + g.value, 0),
   signals: Object.values(c.injectionSignals).reduce((a, v) => a + v, 0), budgetFailures: c.budgetFailures, unknownUsage: c.unknownUsage,
+  piiVaultErrors: c.piiVaultErrors, configReloadFailed: c.configReloadsFailed,
   refusals: c.requests.filter((r) => r.decision === "none" && (r.status === "401" || r.status === "403")).reduce((a, r) => a + r.value, 0) + c.refusalsSuppressed,
   upstreamFailures: (c.upstream["5xx"] ?? 0) + c.upstreamErrors,
 });
@@ -418,11 +423,13 @@ const ALERT_RULES = [
   { id: "metrics-down", title: "Proxy metrics unavailable", severity: "critical", window: 0, threshold: 0, sources: ["real"], help: "The watched proxy did not answer /metrics." },
   { id: "chain-broken", title: "Audit chain broken", severity: "critical", window: 0, threshold: 0, sources: ["synthetic"], help: "verify failed on a synthetic log." },
   { id: "log-integrity", title: "Audit log cannot take records", severity: "critical", window: 300, threshold: 0, input: "logIntegrity", help: "Requests refused with 503, or records lost after delivery. The torn-log check triggers this on purpose." },
+  { id: "pii-vault-errors", title: "PII vault failed closed", severity: "critical", window: 300, threshold: 0, input: "piiVaultErrors", help: "One or more PII vault operations failed closed (scope, token, unsupported content, delivery or storage)." },
   { id: "tool-call-held", title: "Tool call held by the gate", severity: "warning", window: 300, threshold: 0, input: "held", help: "A proposed tool call had an untrusted destination, a secret, or a tool outside the key list." },
   { id: "injection-spike", title: "Prompt-injection signal spike", severity: "warning", window: 600, threshold: 5, input: "signals", help: "More than 5 advisory signals in 10 minutes." },
   { id: "refusal-spike", title: "Refusal spike (401 or 403)", severity: "warning", window: 300, threshold: 10, input: "refusals", help: "More than 10 refused keys or models in 5 minutes." },
   { id: "upstream-failures", title: "Upstream failures", severity: "warning", window: 300, threshold: 2, input: "upstreamFailures", help: "More than 2 upstream 5xx responses or unreachable calls in 5 minutes." },
   { id: "budget-failures", title: "Budget accounting failed", severity: "warning", window: 300, threshold: 0, input: "budgetFailures", help: "Budget counting or settlement failed and generation was refused." },
+  { id: "config-reload-failed", title: "Gateway config hot-reload rejected", severity: "warning", window: 300, threshold: 0, input: "configReloadFailed", help: "A gateway.json hot-reload (POST /audit/reload or SIGHUP) was rejected; the previous snapshot stayed active." },
   { id: "unknown-usage", title: "Calls without token usage", severity: "warning", window: 900, threshold: 0, input: "unknownUsage", help: "Token totals are a lower bound." },
 ];
 const sources = ["synthetic", ...(WATCH ? ["real"] : [])];
