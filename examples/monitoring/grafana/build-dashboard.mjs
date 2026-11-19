@@ -80,12 +80,17 @@ heading("Use cases", 60, "Present only when gateway.json has a useCases table. L
 chart("Requests by use case and decision", 0, 62, 12, [target('sum by (use_case, decision) (increase(ai_audit_requests_total{use_case!="",route=~"/v1/(chat/completions|responses|messages)"}[5m]))', "{{use_case}} · {{decision}}")], "short", "Rolling five-minute count. decision none with a 4xx status is a refusal, for example a row switched off or a use case the key may not name.");
 chart("Tool calls held, by use case", 12, 62, 12, [target('sum by (use_case, mode) (increase(ai_audit_action_gate_total{use_case!="",result="hold"}[5m]))', "{{use_case}} · {{mode}}")], "short", "Rolling five-minute count of proposed tool calls held by the gate, the key's tool list or the use case's tool list.");
 
-heading("Investigate, report, share", 70,"Grafana holds bounded aggregate metrics. The hash-chained local log holds session links, context sizes, decision records, and evidence. Keep those records out of metric labels.");
+heading("Incident response & PII vault", 70, "Hot-reload lets operators flip a use case to off or tighten actionGate in <1s without restarting the proxy. Rejected reloads leave the previous snapshot active.");
+chart("PII vault errors by reason", 0, 72, 10, [target('sum by (reason) (increase(ai_audit_pii_vault_errors_total{reason!=""}[5m]))', "{{reason}}")], "short", "Rolling five-minute count of PII vault rejections, delivery failures (502) and storage errors (503).");
+chart("Gateway config hot-reloads", 10, 72, 10, [target('sum by (trigger, result) (increase(ai_audit_config_reloads_total{result!=""}[15m]))', "{{trigger}} · {{result}}")], "short", "Rolling fifteen-minute count of POST /audit/reload and SIGHUP reloads.");
+stat("Config generation", 20, 72, 4, "max(ai_audit_config_generation)", "short", "Monotonic count of active policy snapshots loaded by this proxy process.");
+
+heading("Investigate, report, share", 80,"Grafana holds bounded aggregate metrics. The hash-chained local log holds session links, context sizes, decision records, and evidence. Keep those records out of metric labels.");
 panels.push({
   id: ++id,
   type: "text",
   title: "From a signal to an evidence package",
-  gridPos: { x: 0, y: 72, w: 24, h: 9 },
+  gridPos: { x: 0, y: 82, w: 24, h: 9 },
   options: {
     mode: "markdown",
     content: [

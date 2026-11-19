@@ -44,11 +44,31 @@ export interface ProxyOpts {
   inspectWorkers?: number;
   inspectQueue?: number;
   inspectOffloadChars?: number;
+  reloadConfig?: () => ReloadableConfig;
 }
+export interface ReloadableConfig {
+  keys?: VKey[];
+  useCases?: Record<string, unknown>;
+  actionGate?: ActionGate;
+  aliases?: Record<string, Alias>;
+  pageRedaction?: boolean;
+  adminKeySha256?: string;
+}
+export interface ReloadResult {
+  generation: number;
+  digest: string;
+  virtualKeys: number;
+  useCases: string[];
+  aliases: string[];
+}
+export type ProxyServer = http.Server & {
+  reload(next?: ReloadableConfig, trigger?: "admin" | "sighup" | "api"): ReloadResult;
+};
 export interface VKey { piiRestore?: boolean; name: string; sha256: string; models?: string[]; providers?: ("openai" | "anthropic")[]; logContent?: boolean; tokenBudget?: TokenBudget; tools?: KeyTools; useCases?: string[] }
 export interface Alias { model: string; upstream?: string }
 export const LATENCY_BUCKETS_SECONDS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300] as const;
 let unsandboxedProxies = 0;
+let activeConfigGeneration = 0;
 export const metrics = {
   sandboxUnavailable: new Counter("ai_audit_sandbox_unavailable", "Requests with attachments refused with 422 because the worker sandbox is unavailable."),
   sandboxDisabled: new Gauge("ai_audit_sandbox_disabled", "1 while a proxy runs attachment workers without a sandbox (--unsafe-no-sandbox, development only).", () => unsandboxedProxies ? 1 : 0),
@@ -67,10 +87,13 @@ export const metrics = {
   unknownUsage: new Counter("ai_audit_unknown_usage", "Successful upstream calls without provider-reported usage, by field."),
   inspectionsOffloaded: new Counter("ai_audit_inspections_offloaded", "Request inspections run in a worker, by result: ok, timeout, failed or busy."),
   sessionIndexRebuildFailures: new Counter("ai_audit_session_index_rebuild_failures", "Proxy starts where the session index could not be rebuilt from the log."),
+  piiVaultErrors: new Counter("ai_audit_pii_vault_errors", "PII vault operations that failed closed, by reason."),
+  configReloads: new Counter("ai_audit_config_reloads", "Gateway configuration hot-reloads by trigger and result."),
+  configGeneration: new Gauge("ai_audit_config_generation", "Active gateway policy snapshot generation.", () => activeConfigGeneration),
   cacheHits: new Gauge("ai_audit_attachment_cache_hits", "Attachment inspection cache hits since start.", () => cacheStats.hits),
   cacheMisses: new Gauge("ai_audit_attachment_cache_misses", "Attachment inspection cache misses since start.", () => cacheStats.misses),
 };
-const METRIC_ROUTES = new Set(["/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1/models", "/healthz", "/readyz", "/metrics", "/audit/stats", "/audit/budgets"]);
+const METRIC_ROUTES = new Set(["/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1/models", "/healthz", "/readyz", "/metrics", "/audit/stats", "/audit/budgets", "/audit/reload"]);
 const routeLabel = (pathname: string) => METRIC_ROUTES.has(pathname) ? pathname : pathname.startsWith("/v1/models/") ? "/v1/models/:id" : "other";
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const ROUTES: Record<string, Api | "count" | undefined> = {
@@ -79,30 +102,67 @@ const ROUTES: Record<string, Api | "count" | undefined> = {
 const HOP = new Set(["host", "connection", "content-length", "transfer-encoding", "accept-encoding", "keep-alive", "upgrade", "proxy-connection", "x-audit-use-case", "x-audit-system-id", "x-audit-correlation", "x-audit-pii-scope"]);
 const RESP_DROP = new Set(["content-encoding", "content-length", "transfer-encoding", "connection", "keep-alive"]);
 
-export function createProxy(o: ProxyOpts) {
-  o = { ...o, keys: o.keys?.map((key) => ({ ...key })) };
-  if ((o.keys ?? []).some((k) => k.piiRestore !== undefined && typeof k.piiRestore !== "boolean")
-    || (!o.piiVault && (o.keys ?? []).some((k) => k.piiRestore))) throw new Error("audit_pii_vault_config_invalid");
-  if (o.piiVault && (o.mode !== "redact" || !o.keys?.length || o.carnet?.size || o.injectionJudge || o.keys.some((k) => !/^[a-f0-9]{64}$/.test(k.sha256)) || new Set(o.keys.map((k) => k.sha256)).size !== o.keys.length)) throw new Error("audit_pii_vault_config_invalid");
+export function createProxy(o: ProxyOpts): ProxyServer {
   const piiVault = o.piiVault && new PiiVault(o.piiVault);
-  for (const key of o.keys ?? []) if (key.tokenBudget !== undefined) {
-    validateBudget(key.tokenBudget);
-    if (!/^[a-f0-9]{64}$/.test(key.sha256)) throw new Error("audit_budget_config_invalid");
-  }
-  const duplicateKeys = new Map<string, boolean>();
-  for (const key of o.keys ?? []) {
-    if (duplicateKeys.has(key.sha256) && (duplicateKeys.get(key.sha256) || key.tokenBudget)) throw new Error("audit_budget_duplicate_key");
-    duplicateKeys.set(key.sha256, !!key.tokenBudget);
-  }
-  const append = (record: object) => o.log.append((piiVault ? redactPiiLog(record) : record) as any);
+  const buildSnapshot = (cfg: ReloadableConfig) => {
+    const keys = cfg.keys?.map((key) => ({ ...key })) ?? [];
+    if (keys.some((k) => k.piiRestore !== undefined && typeof k.piiRestore !== "boolean")
+      || (!piiVault && keys.some((k) => k.piiRestore))) throw new Error("audit_pii_vault_config_invalid");
+    if (piiVault && (o.mode !== "redact" || !keys.length || o.carnet?.size || o.injectionJudge || keys.some((k) => !/^[a-f0-9]{64}$/.test(k.sha256)) || new Set(keys.map((k) => k.sha256)).size !== keys.length)) throw new Error("audit_pii_vault_config_invalid");
+    for (const key of keys) if (key.tokenBudget !== undefined) {
+      validateBudget(key.tokenBudget);
+      if (!/^[a-f0-9]{64}$/.test(key.sha256)) throw new Error("audit_budget_config_invalid");
+    }
+    const duplicateKeys = new Map<string, boolean>();
+    for (const key of keys) {
+      if (duplicateKeys.has(key.sha256) && (duplicateKeys.get(key.sha256) || key.tokenBudget)) throw new Error("audit_budget_duplicate_key");
+      duplicateKeys.set(key.sha256, !!key.tokenBudget);
+    }
+    const actionGate = cfg.actionGate && validateActionGate(cfg.actionGate);
+    const keyTools = new Map(keys.flatMap((key) => key.tools === undefined ? [] : [[key, validateKeyTools(key.tools)] as const]));
+    const useCases = validateUseCases(cfg.useCases, keys);
+    const aliases = cfg.aliases ? { ...cfg.aliases } : undefined;
+    const pageRedaction = cfg.pageRedaction;
+    const profile = createInspectionProfile({ ...o, actionGate, pageRedaction });
+    const useCaseNames = useCases ? [...useCases.keys()].sort() : [];
+    const aliasNames = Object.keys(aliases ?? {}).sort();
+    const digest = sha256(JSON.stringify({
+      profile: profile.receipt.digest,
+      keys: keys.map((k) => ({ name: k.name, sha256: k.sha256, models: k.models, providers: k.providers, useCases: k.useCases, logContent: k.logContent === true, piiRestore: k.piiRestore === true, tools: k.tools, tokenBudget: k.tokenBudget })),
+      useCases: useCaseNames.map((name) => [name, useCases!.get(name)!.digest]),
+      aliases: aliases ?? null,
+    }));
+    return { keys, actionGate, keyTools, useCases, aliases, pageRedaction, adminKeySha256: cfg.adminKeySha256, profile, useCaseNames, aliasNames, digest };
+  };
+  let current = buildSnapshot({ keys: o.keys, useCases: o.useCases, actionGate: o.actionGate, aliases: o.aliases, pageRedaction: o.pageRedaction, adminKeySha256: o.adminKeySha256 });
+  let generation = 1;
+  activeConfigGeneration = generation;
+  const append = (record: object) => o.log.append((piiVault ? redactPiiLog(record) : record) as Parameters<AuditLog["append"]>[0]);
   const budgets = new BudgetStore(o.budgetDirectory ?? o.log.path + ".budgets");
   const max = o.maxBodyBytes ?? 32 * 1024 * 1024, timeoutMs = o.timeoutMs ?? 180_000;
-  const actionGate = o.actionGate && validateActionGate(o.actionGate);
-  const keyTools = new Map((o.keys ?? []).flatMap((key) => key.tools === undefined ? [] : [[key, validateKeyTools(key.tools)] as const]));
-  const useCases = validateUseCases(o.useCases, o.keys ?? []);
-  const profile = createInspectionProfile({ ...o, actionGate });
-  const inspection = createInspectionPool({ allowHashes: profile.allowHashes, timeoutMs: o.inspectTimeoutMs ?? 5_000, size: o.inspectWorkers, queueLimit: o.inspectQueue, tokenizePii: !!piiVault });
+  const inspection = createInspectionPool({ allowHashes: current.profile.allowHashes, timeoutMs: o.inspectTimeoutMs ?? 5_000, size: o.inspectWorkers, queueLimit: o.inspectQueue, tokenizePii: !!piiVault });
   const offloadChars = o.inspectOffloadChars ?? OFFLOAD_CHARS;
+  const reload = (next?: ReloadableConfig, trigger: "admin" | "sighup" | "api" = "api"): ReloadResult => {
+    try {
+      const source = next ?? o.reloadConfig?.();
+      if (!source) throw new Error("audit_reload_not_configured");
+      const snap = buildSnapshot(source);
+      current = snap;
+      generation += 1;
+      activeConfigGeneration = generation;
+      metrics.configReloads.inc({ trigger, result: "ok" });
+      const summary: ReloadResult = { generation, digest: snap.digest, virtualKeys: snap.keys.length, useCases: snap.useCaseNames, aliases: snap.aliasNames };
+      if (!o.quiet) process.stderr.write(JSON.stringify({ ts: new Date().toISOString(), event: "config_reloaded", trigger, ...summary }) + "\n");
+      try { append({ kind: "config-reload", id: randomUUID(), ts: new Date().toISOString(), trigger, generation, configDigest: snap.digest, virtualKeys: snap.keys.length, useCases: snap.useCaseNames }); }
+      catch (e) { metrics.logWriteFailures.inc(); if (!o.quiet) process.stderr.write(JSON.stringify({ ts: new Date().toISOString(), event: "audit_log_write_failed", reason: contentFreeReason(e) }) + "\n"); }
+      return summary;
+    } catch (e) {
+      metrics.configReloads.inc({ trigger, result: "failed" });
+      const code = e instanceof Error && /^audit_[a-z_]+$/.test(e.message) ? e.message : "audit_reload_invalid";
+      if (!o.quiet) process.stderr.write(JSON.stringify({ ts: new Date().toISOString(), event: "config_reload_failed", trigger, reason: code }) + "\n");
+      throw new Error(code);
+    }
+  };
   const judgeOptions = o.injectionJudge && { ...o.injectionJudge };
   if (judgeOptions && (typeof judgeOptions.task !== "string" || !judgeOptions.task.trim() || Buffer.byteLength(judgeOptions.task) > 2_000)) throw new Error("audit_injection_task_invalid");
   const injectionJudge = judgeOptions && createInjectionJudge(judgeOptions);
@@ -136,11 +196,12 @@ export function createProxy(o: ProxyOpts) {
   const refusalFlush = setInterval(() => { if (Math.floor(Date.now() / 60_000) !== refusalMinute) flushSuppressed(); }, 60_000);
   refusalFlush.unref();
   const server = http.createServer(async (req, res) => {
+    const snap = current;
     const rid = randomUUID(), t0 = Date.now(); res.setHeader("x-request-id", rid);
     let decisionTag = "none", routeTag = "", forwarded = false;
     let reservation: Reservation | undefined, budgetSent = false, vkey: VKey | undefined, timer: ReturnType<typeof setTimeout> | undefined;
     let useCase: { name: string; row: UseCase } | undefined, useCaseName: string | undefined;
-    const useCaseLabel = (): Record<string, string> => useCases ? { use_case: useCaseName ?? "none" } : {};
+    const useCaseLabel = (): Record<string, string> => snap.useCases ? { use_case: useCaseName ?? "none" } : {};
     res.on("finish", () => {
       const ms = Date.now() - t0;
       metrics.requests.inc({ route: routeLabel(routeTag), decision: decisionTag, status: String(res.statusCode), ...useCaseLabel() });
@@ -163,30 +224,40 @@ export function createProxy(o: ProxyOpts) {
       if (req.method === "GET" && url.pathname === "/healthz") return void res.end("ok");
       if (req.method === "GET" && url.pathname === "/readyz") return void (!TOOLS_OK ? fail(503, "audit_tools_missing") : sandbox === "unavailable" ? fail(503, "audit_sandbox_unavailable") : res.end("ready"));
       if (req.method === "GET" && url.pathname === "/metrics") { res.setHeader("content-type", OPENMETRICS_CONTENT_TYPE); return void res.end(exposition(Object.values(metrics))); }
-      if (req.method === "GET" && (url.pathname === "/audit/stats" || url.pathname === "/audit/budgets")) {
+      if ((req.method === "GET" && (url.pathname === "/audit/stats" || url.pathname === "/audit/budgets")) || (req.method === "POST" && url.pathname === "/audit/reload")) {
         const k = str(req.headers["x-admin-key"]) ?? "";
-        if (!o.adminKeySha256 || !same(sha256(k), o.adminKeySha256)) return refuse(401, "audit_admin_unauthorized");
-        if (url.pathname === "/audit/budgets") return void res.end(JSON.stringify((o.keys ?? []).filter((k) => k.tokenBudget).map((k) => ({ name: k.name, ...budgets.status(k.sha256, k.tokenBudget!) }))));
+        if (!snap.adminKeySha256 || !same(sha256(k), snap.adminKeySha256)) return refuse(401, "audit_admin_unauthorized");
+        if (url.pathname === "/audit/reload") {
+          try {
+            const result = reload(undefined, "admin");
+            res.setHeader("content-type", "application/json");
+            return void res.end(JSON.stringify(result));
+          } catch (e) {
+            const code = e instanceof Error && /^audit_[a-z_]+$/.test(e.message) ? e.message : "audit_reload_invalid";
+            return fail(400, code);
+          }
+        }
+        if (url.pathname === "/audit/budgets") return void res.end(JSON.stringify(snap.keys.filter((k) => k.tokenBudget).map((k) => ({ name: k.name, ...budgets.status(k.sha256, k.tokenBudget!) }))));
         const by = url.searchParams.get("by") ?? "model";
         if (!["key", "model", "hour"].includes(by)) return refuse(400, "audit_bad_group");
-        return void res.end(JSON.stringify(stats(o.log, by as any, url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? "~")));
+        return void res.end(JSON.stringify(stats(o.log, by as Parameters<typeof stats>[1], url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? "~")));
       }
       const anthropic = route === "anthropic-messages" || route === "count" || (url.pathname === "/v1/models" && (req.headers["anthropic-version"] || req.headers["x-api-key"]));
       const provider = anthropic ? "anthropic" as const : "openai" as const;
       let base = anthropic ? o.upstreamAnthropic : o.upstreamOpenai;
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.headers)) if (!HOP.has(k) && v != null) headers[k] = Array.isArray(v) ? v.join(", ") : v;
-      if (o.keys?.length) {
+      if (snap.keys.length) {
         const got = headers["x-api-key"] ?? headers.authorization?.replace(/^Bearer /i, "") ?? "", h = sha256(got);
-        vkey = o.keys.find((k) => same(h, k.sha256));
+        vkey = snap.keys.find((k) => same(h, k.sha256));
         if (!vkey) return refuse(401, "audit_client_unauthorized", { provider });
         if (vkey.providers && !vkey.providers.includes(provider)) return refuse(403, "audit_provider_not_allowed", { provider });
         delete headers["x-api-key"]; delete headers.authorization;
         const k = anthropic ? o.upstreamKeys?.anthropic : o.upstreamKeys?.openai;
         if (k) anthropic ? (headers["x-api-key"] = k) : (headers.authorization = `Bearer ${k}`);
       }
-      if (useCases && req.method === "POST" && route) {
-        const resolved = resolveUseCase(useCases, vkey?.useCases, str(req.headers["x-audit-use-case"]));
+      if (snap.useCases && req.method === "POST" && route) {
+        const resolved = resolveUseCase(snap.useCases, vkey?.useCases, str(req.headers["x-audit-use-case"]));
         useCaseName = resolved.name;
         if ("code" in resolved) return refuse(resolved.status, resolved.code, { provider });
         useCase = resolved;
@@ -212,19 +283,19 @@ export function createProxy(o: ProxyOpts) {
       if (route !== "count") try { o.log.ensureWritable(); } catch (e) { clearTimeout(timer); decisionTag = "log-unavailable"; return logUnavailable(e); }
 
       const requestedModel = typeof body?.model === "string" ? body.model : undefined;
-      const alias = requestedModel && o.aliases && Object.hasOwn(o.aliases, requestedModel) ? o.aliases[requestedModel] : undefined;
+      const alias = requestedModel && snap.aliases && Object.hasOwn(snap.aliases, requestedModel) ? snap.aliases[requestedModel] : undefined;
       if (alias) { body.model = alias.model; if (alias.upstream) base = alias.upstream; }
       const modelAllowed = (models?: readonly string[]) => !models || models.includes("*") || models.includes(requestedModel ?? "") || models.includes(body?.model);
       if (!modelAllowed(vkey?.models) || !modelAllowed(useCase?.row.models)) { clearTimeout(timer); return refuse(403, "audit_model_not_allowed", { provider, ...(requestedModel && { model: requestedModel.slice(0, 128) }) }); }
       let piiScope: string | undefined;
       if (piiVault) {
         try { piiScope = piiVault.scope(vkey!.sha256, typeof req.headers["x-audit-pii-scope"] === "string" ? req.headers["x-audit-pii-scope"] : ""); }
-        catch (e) { if (e instanceof PiiVaultError) return refuse(e.status, e.message, { provider }); throw e; }
+        catch (e) { if (e instanceof PiiVaultError) { metrics.piiVaultErrors.inc({ reason: "scope" }); return refuse(e.status, e.message, { provider }); } throw e; }
       }
       const target = base.replace(/\/$/, "") + url.pathname + url.search;
-      let inspected: { value: any; findings: any[]; pii?: PiiEntry[] }, inspectionStopped: string | undefined;
+      let inspected: { value: unknown; findings: Array<{ rule: string; path: string; unredactable?: boolean; inKey?: boolean }>; pii?: PiiEntry[] }, inspectionStopped: string | undefined;
       if (!scannedCharsAbove(body, offloadChars)) {
-        try { inspected = (piiVault ? inspectPii(body, profile.carnet) : inspect(body, profile.carnet)) as typeof inspected; }
+        try { inspected = (piiVault ? inspectPii(body, snap.profile.carnet) : inspect(body, snap.profile.carnet)) as typeof inspected; }
         catch (e) {
           if (!piiVault) throw e;
           inspected = { value: body, findings: [] }; inspectionStopped = "audit_inspection_failed";
@@ -245,7 +316,7 @@ export function createProxy(o: ProxyOpts) {
         correlation: validCorrelation(req.headers["x-audit-correlation"]),
         ...(useCase && { useCasePolicy: { tier: useCase.row.tier, digest: useCase.row.digest } }),
         ...who, model: typeof body.model === "string" ? body.model : undefined, requestedModel: alias ? requestedModel : undefined, stream: body.stream === true,
-        requestHash: sha256(raw.toString("latin1")), inspectionProfile: profile.receipt,
+        requestHash: sha256(raw.toString("latin1")), inspectionProfile: snap.profile.receipt,
       };
       const composition = route === "count" ? undefined : composeContext(route, body, raw.length);
       const items = route === "count" ? undefined : conversationItems(route, body);
@@ -259,27 +330,27 @@ export function createProxy(o: ProxyOpts) {
       const reject = (code: string) => {
         clearTimeout(timer); decisionTag = "reject";
         if (route !== "count") append({ kind: "llm-call", id: rid, ts: new Date(t0).toISOString(), ...context,
-          decision: { mode: profile.mode, action: "reject", ...storedFindings(findings), ...(atts.length && { sandbox }) },
+          decision: { mode: snap.profile.mode, action: "reject", ...storedFindings(findings), ...(atts.length && { sandbox }) },
           ...(composition && { context: composition }), ...(session && { session }), ...observe(traced), upstreamStatus: null, error: code, latencyMs: Date.now() - t0 });
         return fail(422, code);
       };
       if (inspectionStopped) return reject(inspectionStopped);
-      if (piiVault && (atts.length || refs.length || opaquePiiInput(body))) return reject("audit_pii_unsupported_content");
-      if (refs.length && profile.mode !== "advisory") return reject("audit_uninspectable_reference");
+      if (piiVault && (atts.length || refs.length || opaquePiiInput(body))) { metrics.piiVaultErrors.inc({ reason: "unsupported_content" }); return reject("audit_pii_unsupported_content"); }
+      if (refs.length && snap.profile.mode !== "advisory") return reject("audit_uninspectable_reference");
       if (atts.length && sandbox === "unavailable") { metrics.sandboxUnavailable.inc(); return reject("audit_sandbox_unavailable"); }
       if (atts.length && !TOOLS_OK) return reject("audit_inspection_unavailable");
       const signals: Signal[] = toolResultSignals(body);
       const sanitize: (() => void)[] = [], rasterized: string[] = [];
       for (const a of atts) {
         metrics.attachments.inc();
-        const r = await inspectAttachment(a, a.path.join("."), { ...profile, sandbox: sandbox === "disabled" ? "disabled" : "bwrap", outputLimit: o.workerOutputLimit });
+        const r = await inspectAttachment(a, a.path.join("."), { ...snap.profile, sandbox: sandbox === "disabled" ? "disabled" : "bwrap", outputLimit: o.workerOutputLimit });
         if (r.failed) return reject(r.failed === "unsupported" ? "audit_unsupported_attachment" : "audit_inspection_failed");
         r.findings.forEach((f) => findings.push({ ...f, unredactable: !r.sanitized }));
         r.signals?.forEach((x) => signals.push(x));
         if (r.sanitized) sanitize.push(() => a.set(r.sanitized!));
         if (r.rasterized) rasterized.push(a.path.join("."));
       }
-      const d = decide(profile.mode, findings); decisionTag = d.action;
+      const d = decide(snap.profile.mode, findings); decisionTag = d.action;
       const judged = injectionJudge && d.action !== "block" && route !== "count"
         ? await judgeToolTexts(injectionJudge, judgeOptions!.task, toolResultTexts(body), ac.signal, judgeOptions!.timeoutMs, injectionVerdicts) : undefined;
       if (judged) {
@@ -298,7 +369,7 @@ export function createProxy(o: ProxyOpts) {
         ...context, ...(piiVault && { pii: { version: 1, delivery: vkey?.piiRestore === true ? "customer" : "tokenized" } }), forwardedPromptDigest: sha256(fwd.toString("latin1")), ...(composition && { context: composition }), ...(session && { session }),
         ...(judged && { injectionJudge: { ...judged, policyDigest: injectionPolicyDigest } }),
         ...(vkey?.tokenBudget && { tokenBudget: { policy: vkey.tokenBudget } }),
-        decision: { mode: profile.mode, action: d.action, ...storedFindings(d.findings), ...(signals.length && { signals }), ...(d.action === "forward-redacted" && rasterized.length && { rasterized }), ...(atts.length && { sandbox }) },
+        decision: { mode: snap.profile.mode, action: d.action, ...storedFindings(d.findings), ...(signals.length && { signals }), ...(d.action === "forward-redacted" && rasterized.length && { rasterized }), ...(atts.length && { sandbox }) },
       };
       const write = (extra: object) => { if (route !== "count") append({ kind: "llm-call", id: rid, ts: new Date(t0).toISOString(), ...rec, ...extra, latencyMs: Date.now() - t0 } as any); };
       if (d.action === "block") { clearTimeout(timer); write({ upstreamStatus: null, ...observe(traced) }); return fail(d.status!, d.code!, d.findings.map((f) => f.rule)); }
@@ -309,6 +380,7 @@ export function createProxy(o: ProxyOpts) {
           for (const token of piiAllowed) piiVault.get(piiScope!, token);
         } catch (e) {
           const error = e instanceof PiiVaultError ? e : new PiiVaultError();
+          metrics.piiVaultErrors.inc({ reason: error.message === "audit_pii_token_invalid" ? "token_invalid" : "unavailable" });
           clearTimeout(timer); decisionTag = "pii-reject";
           write({ decision: { ...rec.decision, action: "block" }, upstreamStatus: null, error: error.message, ...observe(traced) });
           return fail(error.status, error.message);
@@ -359,16 +431,16 @@ export function createProxy(o: ProxyOpts) {
       if (!piiVault || !vkey?.piiRestore) clearTimeout(timer); forwarded = true;
       metrics.upstreamResponses.inc({ provider: context.provider, class: `${Math.floor(up.status / 100)}xx` });
       const sse = (up.headers.get("content-type") ?? "").includes("text/event-stream");
-      const toolLimits: ToolLimits = { key: vkey && keyTools.get(vkey), useCase: useCase?.row.tools }, succeeded = up.status >= 200 && up.status < 400;
+      const toolLimits: ToolLimits = { key: vkey && snap.keyTools.get(vkey), useCase: useCase?.row.tools }, succeeded = up.status >= 200 && up.status < 400;
       let verdict: { out?: Out; gated: CallResult[]; notice?: string } = { gated: [] };
       const judge = (text: string) => {
         const out = route === "count" ? undefined : extract(route, text, sse);
-        const gated = (actionGate || toolLimits.key || toolLimits.useCase) && out && succeeded ? checkActions(actionGate, toolLimits, out.toolCalls, () => requestTexts(route as Api, body), profile.carnet) : [];
+        const gated = (snap.actionGate || toolLimits.key || toolLimits.useCase) && out && succeeded ? checkActions(snap.actionGate, toolLimits, out.toolCalls, () => requestTexts(route as Api, body), snap.profile.carnet) : [];
         const held = gated.filter((call) => call.result === "hold");
         verdict = { out, gated, notice: held.some((call) => call.mode === "enforce") ? heldNotice(held.map((call) => call.tool)) : undefined };
         return verdict.notice;
       };
-      const enforcing = route !== "count" && succeeded && enforces(actionGate, toolLimits);
+      const enforcing = route !== "count" && succeeded && enforces(snap.actionGate, toolLimits);
       let captured = "", deliveryError: string | undefined;
       if (piiVault && vkey?.piiRestore && route !== "count" && succeeded) {
         try {
@@ -383,6 +455,7 @@ export function createProxy(o: ProxyOpts) {
           res.writeHead(up.status, responseHeaders(up)); res.end(deliver);
         } catch {
           deliveryError = "audit_pii_delivery_failed";
+          metrics.piiVaultErrors.inc({ reason: "delivery_failed" });
           fail(502, deliveryError);
           if (!verdict.out) judge(captured);
         }
@@ -399,7 +472,7 @@ export function createProxy(o: ProxyOpts) {
         reservation = undefined;
       }
       const red = (s: string) => {
-        const result = inspect(piiVault ? s.replace(PII_TOKEN, "[REDACTED:pii-token]") : s, profile.carnet);
+        const result = inspect(piiVault ? s.replace(PII_TOKEN, "[REDACTED:pii-token]") : s, snap.profile.carnet);
         return result.findings.some((f) => f.inKey || f.unredactable) ? "[REDACTED:unredactable-content]" : result.value as string;
       };
       if (out && up.status >= 200 && up.status < 400) {
@@ -427,7 +500,7 @@ export function createProxy(o: ProxyOpts) {
     }
   });
   server.on("close", () => { clearInterval(refusalFlush); flushSuppressed(); inspection.close(); });
-  return server;
+  return Object.assign(server, { reload });
 }
 const str = (v: unknown) => (typeof v === "string" ? v.slice(0, 128) : undefined);
 const contentFreeReason = (e: unknown) => e instanceof AuditLogUnavailable ? e.message : typeof (e as NodeJS.ErrnoException)?.code === "string" ? (e as NodeJS.ErrnoException).code! : e instanceof Error ? e.name : "unknown";

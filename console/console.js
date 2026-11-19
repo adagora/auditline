@@ -541,6 +541,8 @@ async function livePage() {
     block("Injection signals", by("ai_audit_injection_signals_total", (l) => l.rule ?? "—")),
     block("Provider answers", by("ai_audit_upstream_responses_total", (l) => `${l.provider} ${l.class}`)),
     block("Unknown usage", by("ai_audit_unknown_usage_total", (l) => `${l.provider} ${l.field}`)),
+    block("PII vault errors", by("ai_audit_pii_vault_errors_total", (l) => l.reason ?? "—")),
+    block("Config reloads", by("ai_audit_config_reloads_total", (l) => `${l.trigger ?? "—"} · ${l.result ?? "—"}`)),
     block("Log failures", by("ai_audit_log_write_failures_total", () => "lost after delivery")));
 }
 

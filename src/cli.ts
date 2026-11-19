@@ -173,25 +173,53 @@ if (cmd === "attest-keygen") {
   log.rotateBytes = Number(a["rotate-bytes"]);
   if (!/^[1-9]\d{0,6}$/.test(a["inspect-timeout-ms"]!)) { console.error("--inspect-timeout-ms must be a whole number of milliseconds above 0"); process.exit(2); }
   const carnet = a["allow-hashes"] ? new Set<string>(JSON.parse(readFileSync(a["allow-hashes"], "utf8"))) : undefined;
-  const env = withAuditlineNames(process.env), cfg = a.config ? JSON.parse(readFileSync(a.config, "utf8")) : {};
+  const env = withAuditlineNames(process.env);
+  const readConfig = () => {
+    if (!a.config) return {};
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(a.config, "utf8")); } catch { throw new Error("audit_reload_invalid_json"); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("audit_reload_invalid_config");
+    return parsed as Record<string, unknown>;
+  };
+  const cfg = readConfig();
+  const initialHasVault = cfg.piiVault !== undefined;
+  const initialBudgetDir = cfg.budgetDirectory;
+  const resolveKeys = (c: Record<string, unknown>) => [
+    ...(Array.isArray(c.keys) ? c.keys : []),
+    ...(env.AI_AUDIT_CLIENT_KEY ? [{ name: "default", sha256: sha256(env.AI_AUDIT_CLIENT_KEY), logContent: env.AI_AUDIT_CLIENT_LOG_CONTENT === "1" }] : []),
+  ];
   const unsafeNoSandbox = a["unsafe-no-sandbox"] === true || env.AI_AUDIT_UNSAFE_NO_SANDBOX === "1";
-  const keys = [...(cfg.keys ?? []), ...(env.AI_AUDIT_CLIENT_KEY ? [{ name: "default", sha256: sha256(env.AI_AUDIT_CLIENT_KEY), logContent: env.AI_AUDIT_CLIENT_LOG_CONTENT === "1" }] : [])];
+  const keys = resolveKeys(cfg);
   const injectionJudge = a["injection-model"] ? { model: a["injection-model"], task: a["injection-task"] ?? "", url: a["injection-url"],
-    ...(a["injection-timeout-ms"] !== undefined && { timeoutMs: Number(a["injection-timeout-ms"]) }) } : cfg.injectionJudge;
+    ...(a["injection-timeout-ms"] !== undefined && { timeoutMs: Number(a["injection-timeout-ms"]) }) } : cfg.injectionJudge as Parameters<typeof createProxy>[0]["injectionJudge"];
   if (!a["injection-model"] && [a["injection-task"], a["injection-url"], a["injection-timeout-ms"]].some((value) => value !== undefined)) {
     console.error("audit_injection_model_required"); process.exit(2);
   }
+  const reloadConfig = a.config ? () => {
+    const next = readConfig();
+    if ((next.piiVault !== undefined) !== initialHasVault || next.budgetDirectory !== initialBudgetDir) throw new Error("audit_reload_requires_restart");
+    return {
+      keys: resolveKeys(next),
+      actionGate: next.actionGate as Parameters<typeof createProxy>[0]["actionGate"],
+      useCases: next.useCases as Parameters<typeof createProxy>[0]["useCases"],
+      aliases: next.aliases as Parameters<typeof createProxy>[0]["aliases"],
+      pageRedaction: !a["no-page-redaction"] && next.pageRedaction !== false,
+      adminKeySha256: env.AI_AUDIT_ADMIN_KEY ? sha256(env.AI_AUDIT_ADMIN_KEY) : (typeof next.adminKeySha256 === "string" ? next.adminKeySha256 : undefined),
+    };
+  } : undefined;
   const server = createProxy({ upstreamOpenai: a["upstream-openai"]!, upstreamAnthropic: a["upstream-anthropic"]!, mode: a.mode as Mode, log, carnet,
     piiVault: piiVaultOptions(cfg.piiVault, env.AI_AUDIT_PII_VAULT_KEY),
-    injectionJudge, actionGate: cfg.actionGate, useCases: cfg.useCases,
-    pageRedaction: !a["no-page-redaction"] && cfg.pageRedaction !== false, keys, budgetDirectory: cfg.budgetDirectory,
-    aliases: cfg.aliases, adminKeySha256: env.AI_AUDIT_ADMIN_KEY ? sha256(env.AI_AUDIT_ADMIN_KEY) : cfg.adminKeySha256,
+    injectionJudge, actionGate: cfg.actionGate as Parameters<typeof createProxy>[0]["actionGate"], useCases: cfg.useCases as Parameters<typeof createProxy>[0]["useCases"],
+    pageRedaction: !a["no-page-redaction"] && cfg.pageRedaction !== false, keys, budgetDirectory: typeof cfg.budgetDirectory === "string" ? cfg.budgetDirectory : undefined,
+    aliases: cfg.aliases as Parameters<typeof createProxy>[0]["aliases"], adminKeySha256: env.AI_AUDIT_ADMIN_KEY ? sha256(env.AI_AUDIT_ADMIN_KEY) : (typeof cfg.adminKeySha256 === "string" ? cfg.adminKeySha256 : undefined),
     upstreamKeys: { openai: env.AI_AUDIT_UPSTREAM_OPENAI_KEY, anthropic: env.AI_AUDIT_UPSTREAM_ANTHROPIC_KEY }, unsafeNoSandbox,
-    inspectTimeoutMs: Number(a["inspect-timeout-ms"]) });
+    inspectTimeoutMs: Number(a["inspect-timeout-ms"]), reloadConfig });
+  const onSighup = () => { try { server.reload(undefined, "sighup"); } catch { } };
+  if (a.config) { process.on("SIGHUP", onSighup); server.on("close", () => process.off("SIGHUP", onSighup)); }
   server.listen(Number(a.port), a.host, () => {
     const addr = server.address();
     const bound = addr && typeof addr === "object" ? addr : { address: a.host, port: Number(a.port) };
-    console.error(JSON.stringify({ event: "listening", url: `http://${bound.address}:${bound.port}`, mode: a.mode, log: a.log, rotateBytes: log.rotateBytes, sandbox: sandboxState(SANDBOX_AVAILABLE, unsafeNoSandbox), attachmentTools: TOOLS_OK, virtualKeys: keys.length, piiVault: !!cfg.piiVault, contentLoggingKeys: keys.filter((k: any) => k.logContent === true).length, aliases: Object.keys(cfg.aliases ?? {}), useCases: Object.keys(cfg.useCases ?? {}) }));
+    console.error(JSON.stringify({ event: "listening", url: `http://${bound.address}:${bound.port}`, mode: a.mode, log: a.log, rotateBytes: log.rotateBytes, sandbox: sandboxState(SANDBOX_AVAILABLE, unsafeNoSandbox), attachmentTools: TOOLS_OK, virtualKeys: keys.length, piiVault: !!cfg.piiVault, contentLoggingKeys: keys.filter((k: { logContent?: unknown }) => k.logContent === true).length, aliases: Object.keys((cfg.aliases as Record<string, unknown>) ?? {}), useCases: Object.keys((cfg.useCases as Record<string, unknown>) ?? {}), hotReload: !!a.config }));
   });
 } else if (cmd === "vault-prune") {
   try {

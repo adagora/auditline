@@ -381,8 +381,18 @@ Pointer-compressed builds are opt-in and slower for this process. Measured with 
 docker build --build-arg BASE=platformatic/node-caged:26.12.1-slim -t ai-audit .
 ```
 
-## Quick start
+### Reproducible dev, CI, and OCI image with Nix
 
+`flake.nix` pins Node 24, Python + Pillow, Tesseract, poppler, Java (for TLA+), and on Linux `bubblewrap` + `prlimit`, plus a zero-runtime-dependency `auditline` package and Linux OCI image (`nix build .#ociImage`):
+
+```bash
+nix develop                 # identical dev/CI shell (includes bwrap/prlimit on Linux)
+nix develop .#productline   # adds Python venv/pip + Temporal CLI for Deskhand + IntentGauge
+nix build .#auditline       # zero-dependency build using nixpkgs TypeScript
+nix build .#ociImage        # reproducible Linux OCI image (on Linux)
+```
+
+## Quick start
 1. Build, as in [From source](#from-source).
 2. Create a client key and save the printed config entry.
 
@@ -543,6 +553,8 @@ A request whose text adds up to more than 256 KiB is scanned in a worker thread,
 | `GET /readyz` | anyone | `ready`, or 503 `audit_tools_missing`, or 503 `audit_sandbox_unavailable` |
 | `GET /metrics` | anyone | OpenMetrics text. Counts only. |
 | `GET /audit/stats?by=model` | header `x-admin-key` | Same numbers as `ai-audit stats` |
+| `GET /audit/budgets` | header `x-admin-key` | Token budget allowances and spend per key |
+| `POST /audit/reload` | header `x-admin-key` | Atomically reloads `gateway.json` (`keys`, `useCases`, `actionGate`, `aliases`, `pageRedaction`). Invalid config fails closed with 400 and keeps the previous snapshot active. `SIGHUP` triggers the same reload. |
 | `GET /v1/models`, `GET /v1/models/:id` | virtual key, when keys are configured | Passed through, not scanned as a prompt |
 | `POST /v1/chat/completions` | virtual key, when keys are configured | Scanned, then forwarded or refused |
 | `POST /v1/responses` | same | same |
@@ -726,7 +738,7 @@ ai-audit prune --log audit.jsonl --keep-days 184
 
 `GET /metrics` is OpenMetrics. Prometheus and VictoriaMetrics can scrape it. The bind address is `127.0.0.1` unless you change `--host`. The path has no authentication. If you expose the port, block `/metrics` in front of the proxy.
 
-`ai_audit_requests_total{route,decision,status}`, `ai_audit_request_duration_seconds` from 5 ms to 300 s, `ai_audit_log_unavailable_total`, `ai_audit_log_write_failures_total`, `ai_audit_refusals_suppressed_total`, `ai_audit_injection_signals_total{rule}`, `ai_audit_action_gate_total{mode,result}`, `ai_audit_quineling_events_total{where,op}`, `ai_audit_upstream_responses_total{provider,class}`, `ai_audit_upstream_errors_total{provider,reason}`, `ai_audit_unknown_usage_total{provider,field}`, `ai_audit_attachments_inspected_total`, `ai_audit_sandbox_unavailable_total`, `ai_audit_session_index_rebuild_failures_total`, `ai_audit_inspections_offloaded_total{result}`, gauge `ai_audit_sandbox_disabled`, gauge `ai_audit_attachment_cache_hits`, gauge `ai_audit_attachment_cache_misses`.
+`ai_audit_requests_total{route,decision,status}`, `ai_audit_request_duration_seconds` from 5 ms to 300 s, `ai_audit_log_unavailable_total`, `ai_audit_log_write_failures_total`, `ai_audit_refusals_suppressed_total`, `ai_audit_injection_signals_total{rule}`, `ai_audit_action_gate_total{mode,result}`, `ai_audit_quineling_events_total{where,op}`, `ai_audit_upstream_responses_total{provider,class}`, `ai_audit_upstream_errors_total{provider,reason}`, `ai_audit_unknown_usage_total{provider,field}`, `ai_audit_attachments_inspected_total`, `ai_audit_sandbox_unavailable_total`, `ai_audit_session_index_rebuild_failures_total`, `ai_audit_inspections_offloaded_total{result}`, `ai_audit_pii_vault_errors_total{reason}`, `ai_audit_config_reloads_total{trigger,result}`, gauge `ai_audit_config_generation`, gauge `ai_audit_sandbox_disabled`, gauge `ai_audit_attachment_cache_hits`, gauge `ai_audit_attachment_cache_misses`.
 
 Unknown paths are `route="other"`. With a `useCases` table, `ai_audit_requests_total` and `ai_audit_action_gate_total` also have `use_case`: a row name, or `none` for a request that names no row. Labels are taken from fixed sets. A ready-made VictoriaMetrics, Grafana and ntfy stack is in [examples/monitoring](examples/monitoring/README.md).
 

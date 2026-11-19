@@ -1024,10 +1024,140 @@
     {
       "id": 29,
       "type": "text",
-      "title": "Investigate, report, share",
+      "title": "Incident response & PII vault",
       "gridPos": {
         "x": 0,
         "y": 70,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Hot-reload lets operators flip a use case to off or tighten actionGate in <1s without restarting the proxy. Rejected reloads leave the previous snapshot active."
+      }
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "PII vault errors by reason",
+      "description": "Rolling five-minute count of PII vault rejections, delivery failures (502) and storage errors (503).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 10,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "sum by (reason) (increase(ai_audit_pii_vault_errors_total{reason!=\"\"}[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Gateway config hot-reloads",
+      "description": "Rolling fifteen-minute count of POST /audit/reload and SIGHUP reloads.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 72,
+        "w": 10,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "sum by (trigger, result) (increase(ai_audit_config_reloads_total{result!=\"\"}[15m]))",
+          "legendFormat": "{{trigger}} · {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "Config generation",
+      "description": "Monotonic count of active policy snapshots loaded by this proxy process.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 72,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "max(ai_audit_config_generation) or vector(0)",
+          "legendFormat": "Config generation",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 33,
+      "type": "text",
+      "title": "Investigate, report, share",
+      "gridPos": {
+        "x": 0,
+        "y": 80,
         "w": 24,
         "h": 2
       },
@@ -1037,12 +1167,12 @@
       }
     },
     {
-      "id": 30,
+      "id": 34,
       "type": "text",
       "title": "From a signal to an evidence package",
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 82,
         "w": 24,
         "h": 9
       },

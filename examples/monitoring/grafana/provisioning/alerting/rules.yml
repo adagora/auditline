@@ -239,3 +239,55 @@ groups:
           severity: warning
         annotations:
           summary: "More than 20% of successful calls had no provider-reported usage over 30 minutes. Token totals are a lower bound. Clients may need stream_options.include_usage."
+      - uid: ai-audit-pii-vault-errors
+        title: "PII vault failed closed"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              instant: true
+              expr: "sum(increase(ai_audit_pii_vault_errors_total[5m]))"
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "One or more encrypted PII vault operations failed closed in the last 5 minutes (scope, token_invalid, unsupported_content, delivery_failed or unavailable). Inspect proxy logs and /metrics by reason."
+      - uid: ai-audit-config-reload-failed
+        title: "Gateway config hot-reload rejected"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              instant: true
+              expr: "sum(increase(ai_audit_config_reloads_total{result=\"failed\"}[5m]))"
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "A gateway.json hot-reload (POST /audit/reload or SIGHUP) was rejected. The previous policy snapshot remains active; fix gateway.json and reload again."
